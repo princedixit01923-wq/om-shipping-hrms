@@ -28,11 +28,14 @@ import { ReportsViewer } from './components/hr/ReportsViewer';
 import { AuditLogsTable } from './components/hr/AuditLogsTable';
 import { SettingsManager } from './components/hr/SettingsManager';
 
+import { ArrowLeft } from 'lucide-react';
+
 export function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(() => dbService.getCurrentUser());
   const [settings, setSettings] = useState<CompanySettings>(() => dbService.getSettings());
   const [officeLocation, setOfficeLocation] = useState<OfficeLocation>(() => dbService.getOfficeLocation());
   const [activeTab, setActiveTab] = useState<string>('emp-dashboard');
+  const [tabHistory, setTabHistory] = useState<string[]>([]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -44,6 +47,9 @@ export function App() {
     return () => unsub();
   }, []);
 
+  const homeTab = currentUser?.role === 'Employee' ? 'emp-dashboard' : 'hr-dashboard';
+  const canGoBack = activeTab !== homeTab || tabHistory.length > 0;
+
   useEffect(() => {
     if (currentUser) {
       if (currentUser.role === 'Employee') {
@@ -51,11 +57,30 @@ export function App() {
       } else {
         setActiveTab('hr-dashboard');
       }
+      setTabHistory([]);
     }
   }, [currentUser?.id, currentUser?.role]);
 
+  const handleTabChange = (newTab: string) => {
+    if (newTab !== activeTab) {
+      setTabHistory((prev) => [...prev, activeTab]);
+      setActiveTab(newTab);
+    }
+  };
+
+  const handleBack = () => {
+    if (tabHistory.length > 0) {
+      const prev = tabHistory[tabHistory.length - 1];
+      setTabHistory((prevHistory) => prevHistory.slice(0, -1));
+      setActiveTab(prev);
+    } else {
+      setActiveTab(homeTab);
+    }
+  };
+
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user);
+    setTabHistory([]);
     if (user.role === 'Employee') {
       setActiveTab('emp-dashboard');
     } else {
@@ -66,6 +91,7 @@ export function App() {
   const handleLogout = () => {
     dbService.setCurrentUser(null);
     setCurrentUser(null);
+    setTabHistory([]);
   };
 
   if (!currentUser) {
@@ -82,6 +108,8 @@ export function App() {
         onLogout={handleLogout}
         onToggleSidebarMobile={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         settings={settings}
+        canGoBack={canGoBack}
+        onBack={handleBack}
       />
 
       {/* Main Layout Container (Sidebar + Scrollable Right Panel) */}
@@ -89,7 +117,7 @@ export function App() {
         {/* Fixed Pinned Left Sidebar */}
         <Sidebar
           activeTab={activeTab}
-          onTabChange={(tab) => setActiveTab(tab)}
+          onTabChange={handleTabChange}
           userRole={currentUser.role}
           mobileOpen={mobileSidebarOpen}
           onCloseMobile={() => setMobileSidebarOpen(false)}
@@ -97,7 +125,20 @@ export function App() {
 
         {/* Scrollable Right Content Area */}
         <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-          <main className="flex-1 p-4 lg:p-8 space-y-6">
+          <main className="flex-1 p-4 lg:p-8 space-y-5">
+            {/* Contextual Back Button on New/Sub Open Screens */}
+            {canGoBack && (
+              <div className="flex items-center">
+                <button
+                  onClick={handleBack}
+                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200/90 text-xs font-extrabold shadow-2xs hover:shadow-xs transition-all active:scale-95 cursor-pointer"
+                  title="Return to previous screen"
+                >
+                  <ArrowLeft className="w-4 h-4 text-blue-600" />
+                  <span>Back to Previous Screen</span>
+                </button>
+              </div>
+            )}
             {/* Employee Portal Views */}
             {activeTab === 'emp-dashboard' && (
               <EmployeeDashboard employee={currentEmployee} settings={settings} officeLocation={officeLocation} />
@@ -114,7 +155,7 @@ export function App() {
 
             {/* HR Portal Views */}
             {activeTab === 'hr-dashboard' && (
-              <HRDashboard onNavigateTab={(tab) => setActiveTab(tab)} settings={settings} officeLocation={officeLocation} />
+              <HRDashboard onNavigateTab={(tab) => handleTabChange(tab)} settings={settings} officeLocation={officeLocation} />
             )}
             {activeTab === 'hr-map' && <AttendanceLocationMap officeLocation={officeLocation} />}
             {activeTab === 'hr-attendance' && <AttendanceTable />}

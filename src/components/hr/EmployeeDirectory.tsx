@@ -5,7 +5,6 @@ import {
   Search,
   Download,
   Edit,
-  Power,
   Trash2,
   FileSpreadsheet,
   Camera,
@@ -204,10 +203,6 @@ export const EmployeeDirectory: React.FC = () => {
 
     dbService.saveEmployee(updated);
     setShowModal(false);
-  };
-
-  const handleToggleStatus = (empId: string) => {
-    dbService.toggleEmployeeStatus(empId);
   };
 
   const handleDeleteEmployee = (emp: Employee) => {
@@ -494,15 +489,6 @@ export const EmployeeDirectory: React.FC = () => {
                         title="Edit Details"
                       >
                         <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleToggleStatus(e.id)}
-                        className={`p-2 rounded-xl transition-colors ${
-                          e.status === 'Active' ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                        }`}
-                        title={e.status === 'Active' ? 'Deactivate' : 'Reactivate'}
-                      >
-                        <Power className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDeleteEmployee(e)}

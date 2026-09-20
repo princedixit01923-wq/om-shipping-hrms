@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, LogOut, ChevronDown, Clock, MapPin } from 'lucide-react';
+import { Bell, LogOut, ChevronDown, Clock, MapPin, ArrowLeft } from 'lucide-react';
 import { User, CompanySettings, SystemNotification } from '../../types';
 import { dbService } from '../../services/dbService';
 
@@ -8,13 +8,17 @@ interface HeaderProps {
   onLogout: () => void;
   onToggleSidebarMobile: () => void;
   settings: CompanySettings;
+  canGoBack?: boolean;
+  onBack?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   user,
   onLogout,
   onToggleSidebarMobile,
-  settings
+  settings,
+  canGoBack,
+  onBack
 }) => {
   const [currentTime, setCurrentTime] = useState<string>('');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -50,8 +54,20 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-2xs px-4 lg:px-6 py-2.5 flex items-center justify-between">
-      {/* Left: Mobile Toggle & Logo */}
-      <div className="flex items-center gap-2 sm:gap-4">
+      {/* Left: Back Button, Mobile Toggle & Logo */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        {canGoBack && onBack && (
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 rounded-xl transition-all border border-slate-200/90 text-xs font-bold active:scale-95 cursor-pointer shadow-2xs"
+            title="Go back to previous screen"
+            aria-label="Go back"
+          >
+            <ArrowLeft className="w-4 h-4 text-blue-600" />
+            <span className="hidden sm:inline">Back</span>
+          </button>
+        )}
+
         <button
           onClick={onToggleSidebarMobile}
           className="lg:hidden p-2 text-slate-700 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition-colors focus:ring-2 focus:ring-blue-500"
