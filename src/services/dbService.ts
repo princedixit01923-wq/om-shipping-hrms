@@ -371,6 +371,17 @@ class DatabaseService {
 
   public recordPunchIn(record: AttendanceRecord) {
     const list = this.getAttendanceRecords();
+    const emp = this.getEmployeeById(record.employeeId);
+    const isFieldStaff = emp?.staffCategory === 'Field Staff' || record.staffCategory === 'Field Staff';
+
+    if (isFieldStaff) {
+      record.staffCategory = 'Field Staff';
+      record.status = 'Present'; // Field staff: flexible login, always full day credit
+      record.isLate = false;
+      record.isEarlyExit = false;
+      record.remarks = 'Field Staff - Flexible Login (Full Day Credit)';
+    }
+
     const existingIdx = list.findIndex((r) => r.employeeId === record.employeeId && r.date === record.date);
     if (existingIdx >= 0) {
       list[existingIdx] = record;
@@ -384,7 +395,7 @@ class DatabaseService {
       'Employee',
       'GPS Punch In',
       'Attendance',
-      `Punched In at ${record.punchIn?.address || 'GPS Location'}`
+      `Punched In at ${record.punchIn?.address || 'GPS Location'} (${isFieldStaff ? 'Field Staff Flexible' : 'Standard Shift'})`
     );
   }
 
@@ -392,11 +403,24 @@ class DatabaseService {
     const list = this.getAttendanceRecords();
     const todayStr = new Date().toISOString().split('T')[0];
     const rec = list.find((r) => r.employeeId === employeeId && r.date === todayStr);
+    const emp = this.getEmployeeById(employeeId);
+    const isFieldStaff = emp?.staffCategory === 'Field Staff' || rec?.staffCategory === 'Field Staff';
+
     if (rec && rec.punchIn) {
       rec.punchOut = punchOutLocation;
       const hours = (punchOutLocation!.timestamp - rec.punchIn.timestamp) / (1000 * 60 * 60);
       rec.workingHours = parseFloat(hours.toFixed(2));
-      rec.status = hours >= 4 ? 'Present' : 'Half Day';
+      
+      // For Field staff category, they can close whenever and it is considered full day
+      if (isFieldStaff) {
+        rec.status = 'Present';
+        rec.isLate = false;
+        rec.isEarlyExit = false;
+        rec.remarks = 'Field Staff - Flexible Punch (Full Day Credit)';
+      } else {
+        rec.status = hours >= 4 ? 'Present' : 'Half Day';
+      }
+
       this.setItem(STORAGE_KEYS.ATTENDANCE, list);
       this.pushToSupabase('attendance_records', rec);
       this.addAuditLog(
@@ -404,7 +428,7 @@ class DatabaseService {
         'Employee',
         'GPS Punch Out',
         'Attendance',
-        `Punched Out at ${punchOutLocation?.address || 'GPS Location'} (${hours.toFixed(2)} hrs)`
+        `Punched Out at ${punchOutLocation?.address || 'GPS Location'} (${hours.toFixed(2)} hrs, Status: ${rec.status})`
       );
     }
   }
@@ -522,6 +546,7 @@ class DatabaseService {
         employeeName: emp.fullName,
         departmentName: emp.departmentName,
         designationName: emp.designationName,
+        staffCategory: emp.staffCategory || 'Office Staff',
         joiningDate: emp.joiningDate,
         payPeriod: monthYear,
         paidDays: 26,
@@ -530,16 +555,24 @@ class DatabaseService {
         hra,
         conveyance,
         specialAllowance,
+        bonus: 0,
         grossSalary: gross,
         pfDeduction,
         esiDeduction: 0,
         ptDeduction,
         tdsDeduction,
+        otherDeductions: 0,
         totalDeductions: ded,
         netPay: net,
-        netPayInWords: `${net.toLocaleString('en-IN')} Rupees`,
+        netPayInWords: `${net.toLocaleString('en-IN')} Rupees Only`,
         status: 'Finalized',
-        generatedAt: new Date().toISOString()
+        generatedAt: new Date().toISOString(),
+        bankName: emp.bankName || 'HDFC Bank Ltd.',
+        accountNumber: emp.accountNumber || '50100982341920',
+        ifscCode: emp.ifscCode || 'HDFC0000240',
+        panNumber: emp.panNumber || 'ABCDE1234F',
+        pfNumber: 'MH/BAN/0048291/000/0192',
+        uanNumber: '100928374619'
       };
 
       const existingIdx = payslips.findIndex((p) => p.id === payslip.id);

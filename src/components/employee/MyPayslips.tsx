@@ -18,6 +18,10 @@ export const MyPayslips: React.FC<MyPayslipsProps> = ({ employee, settings }) =>
     setPayslips(list);
   }, [employee.employeeId]);
 
+  const handleDownloadPDF = async (p: Payslip) => {
+    await generatePayslipPDF(p, settings);
+  };
+
   const handleGenerateAndDownloadCurrent = async () => {
     const monthYear = new Date().toISOString().substring(0, 7); // e.g. 2026-09
     const basic = employee.baseSalary || 65000;
@@ -38,7 +42,8 @@ export const MyPayslips: React.FC<MyPayslipsProps> = ({ employee, settings }) =>
       employeeId: employee.employeeId,
       employeeName: employee.fullName,
       departmentName: employee.departmentName || 'Fleet Operations',
-      designationName: employee.designationName || 'Senior Engineer',
+      designationName: employee.designationName || 'Senior Logistics Officer',
+      staffCategory: employee.staffCategory || 'Office Staff',
       joiningDate: employee.joiningDate || '2026-01-01',
       payPeriod: monthYear,
       paidDays: 26,
@@ -47,16 +52,24 @@ export const MyPayslips: React.FC<MyPayslipsProps> = ({ employee, settings }) =>
       hra,
       conveyance,
       specialAllowance,
+      bonus: 0,
       grossSalary: gross,
       pfDeduction,
       esiDeduction: 0,
       ptDeduction,
       tdsDeduction,
+      otherDeductions: 0,
       totalDeductions: ded,
       netPay: net,
       netPayInWords: `${net.toLocaleString('en-IN')} Rupees Only`,
       status: 'Finalized',
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toISOString(),
+      bankName: employee.bankName || 'HDFC Bank Ltd.',
+      accountNumber: employee.accountNumber || '50100982341920',
+      ifscCode: employee.ifscCode || 'HDFC0000240',
+      panNumber: employee.panNumber || 'ABCDE1234F',
+      pfNumber: 'MH/BAN/0048291/000/0192',
+      uanNumber: '100928374619'
     };
 
     await generatePayslipPDF(instantPayslip, settings);
@@ -88,7 +101,7 @@ export const MyPayslips: React.FC<MyPayslipsProps> = ({ employee, settings }) =>
           <div>
             <h3 className="text-base font-extrabold text-slate-800">Generate Official Salary Slip</h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-              Click the button below to generate and download your formatted PDF salary slip for the current pay period ({new Date().toISOString().substring(0, 7)}).
+              Click the button below to generate and download your formatted PDF salary slip with all components (Basic, HRA, Allowances, TDS, PF, PT, Net Pay) for {new Date().toISOString().substring(0, 7)}.
             </p>
           </div>
           <button
@@ -114,7 +127,7 @@ export const MyPayslips: React.FC<MyPayslipsProps> = ({ employee, settings }) =>
                     <span className="font-bold text-slate-900">{settings.currencySymbol}{p.grossSalary.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between text-slate-600">
-                    <span>Total Deductions:</span>
+                    <span>Total Deductions (TDS, PF, PT):</span>
                     <span className="font-bold text-rose-600">-{settings.currencySymbol}{p.totalDeductions.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between text-slate-600 pt-2 border-t border-slate-100">

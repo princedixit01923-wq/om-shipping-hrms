@@ -51,31 +51,31 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-2xs px-4 lg:px-6 py-2.5 flex items-center justify-between">
       {/* Left: Mobile Toggle & Logo */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         <button
           onClick={onToggleSidebarMobile}
-          className="lg:hidden p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100"
+          className="lg:hidden p-2 text-slate-700 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition-colors focus:ring-2 focus:ring-blue-500"
           aria-label="Toggle Navigation"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <img
             src={settings.logoUrl || '/assets/om_logo.jpg'}
             alt="OM Shipping Ltd."
-            className="h-9 w-auto object-contain bg-white rounded-md p-0.5 border border-slate-200"
+            className="h-8 sm:h-9 w-auto object-contain bg-white rounded-md p-0.5 border border-slate-200"
             onError={(e) => {
               (e.target as HTMLImageElement).src = '/assets/om_logo.jpg';
             }}
           />
           <div>
-            <span className="font-bold text-base tracking-tight text-slate-900 block leading-none">
+            <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-900 block leading-none">
               OM Shipping Ltd.
             </span>
-            <span className="text-[10px] font-normal text-blue-600 uppercase tracking-widest block mt-0.5">
+            <span className="text-[9px] sm:text-[10px] font-bold text-blue-600 uppercase tracking-widest block mt-0.5">
               HRMS By Priva
             </span>
           </div>
@@ -96,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right: Notifications & User Profile */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-2 sm:gap-2.5">
         {/* Notifications */}
         <div className="relative">
           <button
@@ -111,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-slate-200 py-2 z-50 animate-fade-in">
+            <div className="absolute right-0 mt-2 w-72 sm:w-80 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-fade-in">
               <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
                 <span className="font-semibold text-xs text-slate-900">System Notifications</span>
                 <span className="text-[10px] bg-blue-50 text-blue-600 font-medium px-2 py-0.5 rounded-full">

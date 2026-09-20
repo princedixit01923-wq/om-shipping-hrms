@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   LayoutDashboard,
   MapPin,
@@ -14,7 +13,8 @@ import {
   BarChart3,
   ShieldAlert,
   UserCheck,
-  Settings
+  Settings,
+  X
 } from 'lucide-react';
 import { UserRole } from '../../types';
 
@@ -69,25 +69,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {mobileOpen && (
         <div
           onClick={onCloseMobile}
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 lg:hidden"
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden cursor-pointer"
+          aria-label="Close sidebar backdrop"
         ></div>
       )}
 
-      {/* Fixed Sticky Left Sidebar */}
+      {/* Fixed Sticky Left Sidebar - z-50 above z-40 backdrop */}
       <aside
-        className={`fixed lg:relative top-0 left-0 z-30 w-64 h-full bg-[#0f172a] text-slate-100 flex flex-col justify-between shrink-0 transition-transform duration-300 ease-in-out ${
+        className={`fixed lg:relative top-0 left-0 z-50 w-72 lg:w-64 h-full bg-[#0f172a] text-slate-100 flex flex-col justify-between shrink-0 shadow-2xl lg:shadow-none transition-transform duration-300 ease-in-out ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
         <div className="flex flex-col h-full overflow-y-auto">
-          {/* Header Banner */}
-          <div className="px-4 py-3 border-b border-slate-800/80 bg-[#090d16] shrink-0">
-            <span className="text-[10px] font-semibold text-blue-400 uppercase tracking-widest block">
-              {isHR ? 'ADMINISTRATION' : 'EMPLOYEE PORTAL'}
-            </span>
-            <span className="text-xs font-bold text-white block mt-0.5">
-              {isHR ? 'HR Administrator' : 'Employee Portal'}
-            </span>
+          {/* Header Banner with Mobile Close Button */}
+          <div className="px-4 py-3 border-b border-slate-800/80 bg-[#090d16] shrink-0 flex items-center justify-between">
+            <div>
+              <span className="text-[10px] font-semibold text-blue-400 uppercase tracking-widest block">
+                {isHR ? 'ADMINISTRATION' : 'EMPLOYEE PORTAL'}
+              </span>
+              <span className="text-xs font-bold text-white block mt-0.5">
+                {isHR ? 'HR Administrator' : 'Employee Portal'}
+              </span>
+            </div>
+
+            {/* Mobile Close Button */}
+            <button
+              onClick={onCloseMobile}
+              className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+              aria-label="Close navigation"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
           {/* Nav List */}

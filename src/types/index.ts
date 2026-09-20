@@ -54,6 +54,8 @@ export interface Employee {
   departmentName: string;
   designationName: string;
   
+  staffCategory?: 'Office Staff' | 'Field Staff'; // Office Staff (fixed shift) vs Field Staff (flexible time)
+
   shiftId: string;
   shiftName: string;
 
@@ -91,6 +93,7 @@ export interface AttendanceRecord {
   employeeName: string;
   biometricPin: string;
   departmentName: string;
+  staffCategory?: 'Office Staff' | 'Field Staff';
   date: string; // YYYY-MM-DD
   punchIn?: LocationCoordinates;
   punchOut?: LocationCoordinates;
@@ -163,6 +166,7 @@ export interface Payslip {
   employeeName: string;
   departmentName: string;
   designationName: string;
+  staffCategory?: 'Office Staff' | 'Field Staff';
   joiningDate: string;
   payPeriod: string;
   paidDays: number;
@@ -172,18 +176,27 @@ export interface Payslip {
   hra: number;
   conveyance: number;
   specialAllowance: number;
+  bonus?: number;
   grossSalary: number;
 
   pfDeduction: number;
   esiDeduction: number;
   ptDeduction: number;
   tdsDeduction: number;
+  otherDeductions?: number;
   totalDeductions: number;
 
   netPay: number;
   netPayInWords: string;
   status: 'Draft' | 'Finalized' | 'Paid';
   generatedAt: string;
+
+  bankName?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  panNumber?: string;
+  pfNumber?: string;
+  uanNumber?: string;
 }
 
 export interface PayrollRun {

@@ -91,17 +91,20 @@ export const GPSPunchCard: React.FC<GPSPunchCardProps> = ({
     }
 
     const todayStr = new Date().toISOString().split('T')[0];
+    const isFieldStaff = employee.staffCategory === 'Field Staff';
     const newRecord: AttendanceRecord = {
       id: `att-${todayStr}-${employee.employeeId}`,
       employeeId: employee.employeeId,
       employeeName: employee.fullName,
       departmentName: employee.departmentName,
+      staffCategory: employee.staffCategory || 'Office Staff',
+      biometricPin: employee.biometricPin || '1024',
       date: todayStr,
       punchIn: currentCoords,
       status: 'Present',
       isLate: false,
       isEarlyExit: false,
-      remarks: 'Verified GPS Location Punch'
+      remarks: isFieldStaff ? 'Field Staff - Flexible Punch (Full Day Credit)' : 'Verified GPS Location Punch'
     };
 
     dbService.recordPunchIn(newRecord);
@@ -119,19 +122,27 @@ export const GPSPunchCard: React.FC<GPSPunchCardProps> = ({
 
   const hasPunchedIn = Boolean(todayRecord?.punchIn);
   const hasPunchedOut = Boolean(todayRecord?.punchOut);
+  const isField = employee.staffCategory === 'Field Staff';
 
   return (
     <div className="bg-white rounded-xl p-5 shadow-2xs border border-slate-200">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-base font-bold text-slate-900">GPS Location Punch</h2>
             <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200">
               High-Precision GPS
             </span>
+            {isField && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Field Staff • Flexible Hours (Full Day Credit)
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Captures your exact real-time location (Latitude, Longitude & Address) for field/office attendance
+            {isField
+              ? 'Field Staff can punch in and punch out anytime without fixed shift constraints. Counted as Full Day.'
+              : 'Captures your exact real-time location (Latitude, Longitude & Address) for field/office attendance'}
           </p>
         </div>
 
