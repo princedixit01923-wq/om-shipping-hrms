@@ -401,8 +401,16 @@ class DatabaseService {
   }
 
   public getEmployeeById(idOrEmpId: string): Employee | undefined {
+    if (!idOrEmpId) return undefined;
     const list = this.getEmployees();
-    return list.find((e) => e.id === idOrEmpId || e.employeeId === idOrEmpId);
+    const clean = idOrEmpId.trim().toLowerCase();
+    return list.find(
+      (e) =>
+        e.id.toLowerCase() === clean ||
+        e.employeeId.toLowerCase() === clean ||
+        e.biometricPin?.toLowerCase() === clean ||
+        e.email?.toLowerCase() === clean
+    );
   }
 
   public saveEmployee(emp: Employee) {
@@ -472,6 +480,20 @@ class DatabaseService {
   // --- Attendance ---
   public getAttendanceRecords(): AttendanceRecord[] {
     return this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
+  }
+
+  public getTodayAttendanceForEmployee(idOrEmpId: string): AttendanceRecord | undefined {
+    if (!idOrEmpId) return undefined;
+    const list = this.getAttendanceRecords();
+    const todayStr = new Date().toISOString().split('T')[0];
+    const clean = idOrEmpId.trim().toLowerCase();
+    return list.find((r) => {
+      const matchEmp =
+        r.employeeId.toLowerCase() === clean ||
+        r.biometricPin?.toLowerCase() === clean ||
+        (r as any).id?.toLowerCase() === clean;
+      return matchEmp && r.date === todayStr;
+    });
   }
 
   public recordPunchIn(record: AttendanceRecord) {

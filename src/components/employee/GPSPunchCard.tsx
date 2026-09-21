@@ -90,14 +90,19 @@ export const GPSPunchCard: React.FC<GPSPunchCardProps> = ({
     const coords = await getLiveLocation();
     setCurrentCoords(coords);
 
+    const empId = employee?.employeeId || 'OM0001';
+    const empName = employee?.fullName || 'Employee';
+    const deptName = employee?.departmentName || 'Technical Department';
+    const pin = employee?.biometricPin || '1024';
+
     const todayStr = new Date().toISOString().split('T')[0];
     const newRecord: AttendanceRecord = {
-      id: `att-${todayStr}-${employee.employeeId}`,
-      employeeId: employee.employeeId,
-      employeeName: employee.fullName,
-      departmentName: employee.departmentName,
-      staffCategory: employee.staffCategory || 'Field Staff',
-      biometricPin: employee.biometricPin || '1024',
+      id: `att-${todayStr}-${empId}`,
+      employeeId: empId,
+      employeeName: empName,
+      departmentName: deptName,
+      staffCategory: employee?.staffCategory || 'Field Staff',
+      biometricPin: pin,
       date: todayStr,
       punchIn: coords,
       status: 'Present',
@@ -115,14 +120,14 @@ export const GPSPunchCard: React.FC<GPSPunchCardProps> = ({
     setLoading(true);
     const coords = await getLiveLocation();
     setCurrentCoords(coords);
-    dbService.recordPunchOut(employee.employeeId, coords);
+    dbService.recordPunchOut(employee?.employeeId || 'OM0001', coords);
     setLoading(false);
     onPunchSuccess();
   };
 
   const hasPunchedIn = Boolean(todayRecord?.punchIn);
   const hasPunchedOut = Boolean(todayRecord?.punchOut);
-  const isField = employee.staffCategory === 'Field Staff' || employee.departmentName === 'Technical Department';
+  const isField = employee?.staffCategory === 'Field Staff' || employee?.departmentName === 'Technical Department';
 
   return (
     <div className="bg-white rounded-xl p-5 shadow-2xs border border-slate-200">
@@ -263,8 +268,8 @@ export const GPSPunchCard: React.FC<GPSPunchCardProps> = ({
             center={[currentCoords.latitude, currentCoords.longitude]}
             punches={[
               {
-                employeeName: employee.fullName,
-                employeeId: employee.employeeId,
+                employeeName: employee?.fullName || 'Employee',
+                employeeId: employee?.employeeId || 'OM0001',
                 type: hasPunchedOut ? 'Punch Out' : 'Punch In',
                 location: currentCoords,
                 timeStr: new Date().toLocaleTimeString()

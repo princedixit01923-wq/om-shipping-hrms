@@ -20,18 +20,26 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
   const [recentRecords, setRecentRecords] = useState<AttendanceRecord[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
 
+  const safeEmployeeId = employee?.employeeId || 'OM0001';
+
   const reloadData = () => {
-    setTodayRecord(dbService.getTodayAttendanceForEmployee(employee.employeeId));
-    const all = dbService.getAttendanceRecords().filter((r) => r.employeeId === employee.employeeId);
-    setRecentRecords(all.slice(0, 5));
-    setAnnouncements(dbService.getAnnouncements().slice(0, 3));
+    try {
+      setTodayRecord(dbService.getTodayAttendanceForEmployee(safeEmployeeId));
+      const all = dbService.getAttendanceRecords().filter(
+        (r) => r.employeeId === safeEmployeeId || (employee?.biometricPin && r.biometricPin === employee.biometricPin)
+      );
+      setRecentRecords(all.slice(0, 5));
+      setAnnouncements(dbService.getAnnouncements().slice(0, 3));
+    } catch (err) {
+      console.warn('Dashboard data load notice:', err);
+    }
   };
 
   useEffect(() => {
     reloadData();
     const unsub = dbService.subscribe(reloadData);
     return () => unsub();
-  }, [employee.employeeId]);
+  }, [safeEmployeeId]);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -46,32 +54,32 @@ export const EmployeeDashboard: React.FC<EmployeeDashboardProps> = ({
       <div className="bg-slate-900 rounded-xl p-6 text-white shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
         <div className="flex items-center gap-4 z-10">
           <img
-            src={employee.profilePhoto || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'}
-            alt={employee.fullName}
+            src={employee?.profilePhoto || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'}
+            alt={employee?.fullName || 'Employee'}
             className="w-14 h-14 rounded-full object-cover border-2 border-white/20 shadow-xs"
           />
           <div>
             <span className="text-xs font-medium text-slate-300 uppercase tracking-wider block">
               {getGreeting()},
             </span>
-            <h1 className="text-xl font-bold tracking-tight mt-0.5">{employee.fullName}</h1>
+            <h1 className="text-xl font-bold tracking-tight mt-0.5">{employee?.fullName || 'Employee Member'}</h1>
             <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-300 mt-1">
-              <span className="bg-slate-800 px-2 py-0.5 rounded font-mono text-[11px]">ID: {employee.employeeId}</span>
+              <span className="bg-slate-800 px-2 py-0.5 rounded font-mono text-[11px]">ID: {safeEmployeeId}</span>
               <span>•</span>
               <span className="flex items-center gap-1 font-medium">
                 <Building2 className="w-3.5 h-3.5 text-blue-400" />
-                {employee.departmentName}
+                {employee?.departmentName || 'Technical Department'}
               </span>
               <span>•</span>
-              <span className="font-normal">{employee.designationName}</span>
+              <span className="font-normal">{employee?.designationName || 'Staff Member'}</span>
             </div>
           </div>
         </div>
 
         <div className="bg-slate-800/80 rounded-lg p-3.5 border border-slate-700 text-center min-w-[190px] z-10">
           <span className="text-[10px] font-medium text-slate-300 block uppercase tracking-wider">Shift Schedule</span>
-          <span className="text-xs font-bold text-white block mt-0.5">{employee.shiftName}</span>
-          <span className="text-[10px] text-slate-400 block mt-0.5">09:30 AM → 06:30 PM</span>
+          <span className="text-xs font-bold text-white block mt-0.5">{employee?.shiftName || 'Flexible Shift'}</span>
+          <span className="text-[10px] text-slate-400 block mt-0.5">Flexible Anytime Punch / Shift A</span>
         </div>
       </div>
 
