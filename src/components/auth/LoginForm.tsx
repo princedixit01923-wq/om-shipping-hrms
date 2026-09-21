@@ -62,21 +62,21 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess, settings }
           <div className="bg-slate-900 p-6 text-center text-white border-b border-slate-800">
             <img
               src={settings.logoUrl || '/assets/om_logo.jpg'}
-              alt="OM Shipping Ltd."
+              alt="OM Safety Services LLP"
               className="h-12 mx-auto object-contain bg-white rounded-md p-1 mb-2 border border-slate-700"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = '/assets/om_logo.jpg';
               }}
             />
-            <h1 className="text-xl font-bold tracking-tight">OM Shipping Ltd.</h1>
-            <p className="text-xs font-normal text-slate-400 mt-0.5 uppercase tracking-widest">HRMS By Priva</p>
+            <h1 className="text-xl font-bold tracking-tight">OM Safety Services LLP</h1>
+            <p className="text-xs font-semibold text-blue-400 mt-0.5 uppercase tracking-wider">ONCE WITH US SAFE WITH US</p>
           </div>
 
           {/* Login Form Body */}
           <div className="p-6">
             <div className="text-center mb-5">
               <h2 className="text-base font-bold text-slate-900">Sign in to Corporate Portal</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Enter your assigned HR or Employee credentials</p>
+              <p className="text-xs text-slate-500 mt-0.5">Login with your Employee Code or Biometric PIN</p>
             </div>
 
             {errorMsg && (
@@ -88,8 +88,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess, settings }
 
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Email ID / Employee Code / PIN
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Employee Code / Biometric PIN / HR Email
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -97,14 +97,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess, settings }
                     type="text"
                     value={emailOrEmpId}
                     onChange={(e) => setEmailOrEmpId(e.target.value)}
-                    placeholder="e.g. hr@omshipping.com or OM0001"
+                    placeholder="e.g. OSS/13/2026 or 1024 or hr@omshipping.com"
                     className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-normal text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Portal Password</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Portal Password</label>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                   <input
@@ -156,20 +156,17 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess, settings }
             {/* Quick Access Credentials Banner */}
             <div className="mt-5 p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] space-y-1 font-medium text-slate-600">
               <div className="flex items-center justify-between font-semibold text-slate-900 mb-1">
-                <span>🔑 System Access Credentials</span>
+                <span>🔑 Fast Sign In Credentials</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span>HR Admin:</span>
-                <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-mono text-blue-600">
-                  hr@omshipping.com / OmShippingGreat.com
-                </code>
-              </div>
-              <div className="flex justify-between items-center">
-                <span>Employee:</span>
-                <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-mono text-emerald-600">
-                  OM0001 / OM0001
-                </code>
-              </div>
+              <p className="text-slate-700">
+                <span className="font-bold text-slate-900">HR Admin:</span> hr@omshipping.com / OmShippingGreat.com
+              </p>
+              <p className="text-slate-700">
+                <span className="font-bold text-slate-900">Employee Code:</span> OSS/13/2026 or OM0001 (Password: OM0001)
+              </p>
+              <p className="text-slate-700">
+                <span className="font-bold text-slate-900">Biometric PIN:</span> 1024 (Password: OM0001)
+              </p>
             </div>
 
             {/* Bottom Tagline requested by user */}

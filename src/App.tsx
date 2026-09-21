@@ -27,6 +27,7 @@ import { AnnouncementManager } from './components/hr/AnnouncementManager';
 import { ReportsViewer } from './components/hr/ReportsViewer';
 import { AuditLogsTable } from './components/hr/AuditLogsTable';
 import { SettingsManager } from './components/hr/SettingsManager';
+import { HolidayManager } from './components/hr/HolidayManager';
 
 import { ArrowLeft } from 'lucide-react';
 
@@ -164,6 +165,7 @@ export function App() {
             {activeTab === 'hr-corrections' && <TimeCorrectionApprovals />}
             {activeTab === 'hr-employees' && <EmployeeDirectory />}
             {activeTab === 'hr-payroll' && <PayrollProcessor settings={settings} />}
+            {activeTab === 'hr-holidays' && <HolidayManager />}
             {activeTab === 'hr-shifts' && <ShiftManager />}
             {activeTab === 'hr-announcements' && <AnnouncementManager />}
             {activeTab === 'hr-audit' && <AuditLogsTable />}

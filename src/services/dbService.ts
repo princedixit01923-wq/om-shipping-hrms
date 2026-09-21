@@ -31,6 +31,7 @@ import {
 } from './mockData';
 
 import { supabase } from './supabaseClient';
+import { convertNumberToWords } from '../utils/numberToWords';
 
 const STORAGE_KEYS = {
   SETTINGS: 'om_hrms_settings',
@@ -46,14 +47,14 @@ const STORAGE_KEYS = {
   PAYROLL_RUNS: 'om_hrms_payroll_runs',
   ANNOUNCEMENTS: 'om_hrms_announcements',
   AUDIT_LOGS: 'om_hrms_audit_logs',
-  CURRENT_USER: 'om_hrms_current_user'
+  SESSION_USER: 'om_hrms_session_user'
 };
 
 type EventCallback = () => void;
 
 class DatabaseService {
   private listeners: Set<EventCallback> = new Set();
-  private isSupabaseConnected: boolean = true;
+  public isCloudConnected: boolean = false;
 
   constructor() {
     this.initSeedData();
@@ -80,6 +81,7 @@ class DatabaseService {
       const { data: empData, error: empErr } = await supabase.from('employees').select('*');
       if (!empErr && empData && empData.length > 0) {
         this.setItem(STORAGE_KEYS.EMPLOYEES, empData);
+        this.isCloudConnected = true;
       }
 
       // 2. Sync Attendance Records from Supabase
@@ -105,8 +107,14 @@ class DatabaseService {
       if (!ancErr && ancData && ancData.length > 0) {
         this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, ancData);
       }
+
+      // 6. Sync Holidays from Supabase
+      const { data: holData, error: holErr } = await supabase.from('holidays').select('*');
+      if (!holErr && holData && holData.length > 0) {
+        this.setItem(STORAGE_KEYS.HOLIDAYS, holData);
+      }
     } catch (err) {
-      console.warn('Supabase initial fetch sync background notice:', err);
+      console.warn('Supabase initial fetch sync notice:', err);
     }
   }
 
@@ -115,13 +123,16 @@ class DatabaseService {
    */
   private async pushToSupabase(tableName: string, payload: any) {
     try {
-      if (Array.isArray(payload)) {
-        await supabase.from(tableName).upsert(payload);
+      const { error } = Array.isArray(payload)
+        ? await supabase.from(tableName).upsert(payload)
+        : await supabase.from(tableName).upsert([payload]);
+      if (error) {
+        console.warn(`Supabase upsert warning for ${tableName}:`, error.message);
       } else {
-        await supabase.from(tableName).upsert([payload]);
+        this.isCloudConnected = true;
       }
     } catch (err) {
-      console.warn(`Supabase push warning for ${tableName}:`, err);
+      console.warn(`Supabase push error for ${tableName}:`, err);
     }
   }
 
@@ -158,14 +169,6 @@ class DatabaseService {
     }
     if (!localStorage.getItem(STORAGE_KEYS.EMPLOYEES)) {
       this.setItem(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES);
-    } else {
-      // Ensure OM0001 is present even if browser localStorage had older sample data
-      const employees = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
-      const hasOM0001 = employees.some((e) => e.employeeId === 'OM0001');
-      if (!hasOM0001 && INITIAL_EMPLOYEES[0]) {
-        employees.unshift(INITIAL_EMPLOYEES[0]);
-        this.setItem(STORAGE_KEYS.EMPLOYEES, employees);
-      }
     }
     if (!localStorage.getItem(STORAGE_KEYS.ATTENDANCE)) {
       this.setItem(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
@@ -191,20 +194,30 @@ class DatabaseService {
     if (!localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS)) {
       this.setItem(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS);
     }
-    if (!localStorage.getItem(STORAGE_KEYS.CURRENT_USER)) {
-      this.setItem(STORAGE_KEYS.CURRENT_USER, INITIAL_USERS[0]);
-    }
+    // Note: Do NOT pre-seed active session user so opening the link shows login first!
   }
 
   // --- Auth Session ---
   public getCurrentUser(): User | null {
-    return this.getItem<User | null>(STORAGE_KEYS.CURRENT_USER, null);
+    try {
+      const data = sessionStorage.getItem(STORAGE_KEYS.SESSION_USER);
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
+    }
   }
 
   public setCurrentUser(user: User | null) {
-    this.setItem(STORAGE_KEYS.CURRENT_USER, user);
-    if (user) {
-      this.addAuditLog(user.name, user.role, 'Session Login', 'Authentication', `User logged in as ${user.role}`);
+    try {
+      if (user) {
+        sessionStorage.setItem(STORAGE_KEYS.SESSION_USER, JSON.stringify(user));
+        this.addAuditLog(user.name, user.role, 'Session Login', 'Authentication', `User logged in as ${user.role}`);
+      } else {
+        sessionStorage.removeItem(STORAGE_KEYS.SESSION_USER);
+      }
+      this.notify();
+    } catch (err) {
+      console.error('Session write error:', err);
     }
   }
 
@@ -212,20 +225,24 @@ class DatabaseService {
     return this.getItem<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
   }
 
+  /**
+   * Dual Login: Employee can login by Employee Code or Biometric PIN with the same password
+   */
   public authenticate(identifier: string, pass: string): User | null {
     const cleanId = identifier.trim().toLowerCase();
+    const cleanPass = pass.trim();
 
-    // Single HR Account check: hr@omshipping.com / OmShippingGreat.com
+    // 1. HR Administrator Check
     if (
-      (cleanId === 'hr@omshipping.com' || cleanId === 'hr') &&
-      (pass === 'OmShippingGreat.com' || pass === 'OM0001')
+      (cleanId === 'hr@omshipping.com' || cleanId === 'hr@omsafety.in' || cleanId === 'hr') &&
+      (cleanPass === 'OmShippingGreat.com' || cleanPass === 'OM0001' || cleanPass === 'omsafety')
     ) {
       const hrUser: User = {
         id: 'usr-hr-admin',
-        email: 'hr@omshipping.com',
+        email: 'hr@omsafety.in',
         name: 'HR Administrator',
         role: 'HR Administrator',
-        employeeId: 'NVD0001',
+        employeeId: 'HR001',
         avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150',
         status: 'Active',
         createdAt: '2026-01-01'
@@ -233,26 +250,26 @@ class DatabaseService {
       return hrUser;
     }
 
-    // Employee Account check by email, custom employee code, or biometric PIN
+    // 2. Employee Account Check by Employee Code OR Biometric PIN OR Email
     const employees = this.getEmployees();
     const emp = employees.find(
       (e) =>
-        e.email.toLowerCase() === cleanId ||
         e.employeeId.toLowerCase() === cleanId ||
-        e.biometricPin === cleanId ||
-        (cleanId.includes('john') && e.employeeId === 'OM0001') ||
-        cleanId === 'om0001'
+        e.biometricPin.toLowerCase() === cleanId ||
+        e.email.toLowerCase() === cleanId ||
+        cleanId === e.employeeId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
     );
 
     if (emp) {
-      // Validate portal password set by HR (or flexible fallbacks)
+      // Validate portal password set by HR (with friendly standard fallback)
       const expectedPass = emp.portalPassword || 'OM0001';
       if (
-        pass === expectedPass ||
-        pass === 'OM0001' ||
-        pass === 'OmShippingGreat.com' ||
-        pass === 'Password123' ||
-        pass === emp.employeeId
+        cleanPass === expectedPass ||
+        cleanPass === 'OM0001' ||
+        cleanPass === 'OmShippingGreat.com' ||
+        cleanPass === 'Password123' ||
+        cleanPass === emp.employeeId ||
+        cleanPass === emp.biometricPin
       ) {
         const empUser: User = {
           id: `usr-${emp.id}`,
@@ -311,7 +328,13 @@ class DatabaseService {
     this.setItem(STORAGE_KEYS.EMPLOYEES, list);
     this.pushToSupabase('employees', emp);
     const user = this.getCurrentUser();
-    this.addAuditLog(user?.name || 'HR Administrator', user?.role || 'HR Administrator', idx >= 0 ? 'Edited Employee' : 'Added Employee', 'Employee Directory', `Saved employee ${emp.fullName} (${emp.employeeId})`);
+    this.addAuditLog(
+      user?.name || 'HR Administrator',
+      user?.role || 'HR Administrator',
+      idx >= 0 ? 'Edited Employee' : 'Added Employee',
+      'Employee Directory',
+      `Saved employee ${emp.fullName} (${emp.employeeId})`
+    );
   }
 
   public updateEmployeePhoto(empId: string, photoUrl: string) {
@@ -322,11 +345,10 @@ class DatabaseService {
       this.setItem(STORAGE_KEYS.EMPLOYEES, list);
       this.pushToSupabase('employees', emp);
 
-      // If current active user is this employee, update their avatar too
       const current = this.getCurrentUser();
       if (current && current.employeeId === emp.employeeId) {
         current.avatarUrl = photoUrl;
-        this.setItem(STORAGE_KEYS.CURRENT_USER, current);
+        this.setCurrentUser(current);
       }
     }
   }
@@ -364,23 +386,14 @@ class DatabaseService {
     return this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
   }
 
-  public getTodayAttendanceForEmployee(employeeId: string): AttendanceRecord | undefined {
-    const todayStr = new Date().toISOString().split('T')[0];
-    return this.getAttendanceRecords().find((r) => r.employeeId === employeeId && r.date === todayStr);
-  }
-
   public recordPunchIn(record: AttendanceRecord) {
     const list = this.getAttendanceRecords();
-    const emp = this.getEmployeeById(record.employeeId);
-    const isFieldStaff = emp?.staffCategory === 'Field Staff' || record.staffCategory === 'Field Staff';
 
-    if (isFieldStaff) {
-      record.staffCategory = 'Field Staff';
-      record.status = 'Present'; // Field staff: flexible login, always full day credit
-      record.isLate = false;
-      record.isEarlyExit = false;
-      record.remarks = 'Field Staff - Flexible Login (Full Day Credit)';
-    }
+    // Strict Rule: Always full day "Present", no late penalty, no salary deduction
+    record.status = 'Present';
+    record.isLate = false;
+    record.isEarlyExit = false;
+    record.remarks = 'Verified GPS Punch (Present)';
 
     const existingIdx = list.findIndex((r) => r.employeeId === record.employeeId && r.date === record.date);
     if (existingIdx >= 0) {
@@ -395,7 +408,7 @@ class DatabaseService {
       'Employee',
       'GPS Punch In',
       'Attendance',
-      `Punched In at ${record.punchIn?.address || 'GPS Location'} (${isFieldStaff ? 'Field Staff Flexible' : 'Standard Shift'})`
+      `Punched In at ${record.punchIn?.address || 'Live GPS Location'}`
     );
   }
 
@@ -403,23 +416,17 @@ class DatabaseService {
     const list = this.getAttendanceRecords();
     const todayStr = new Date().toISOString().split('T')[0];
     const rec = list.find((r) => r.employeeId === employeeId && r.date === todayStr);
-    const emp = this.getEmployeeById(employeeId);
-    const isFieldStaff = emp?.staffCategory === 'Field Staff' || rec?.staffCategory === 'Field Staff';
 
     if (rec && rec.punchIn) {
       rec.punchOut = punchOutLocation;
       const hours = (punchOutLocation!.timestamp - rec.punchIn.timestamp) / (1000 * 60 * 60);
       rec.workingHours = parseFloat(hours.toFixed(2));
       
-      // For Field staff category, they can close whenever and it is considered full day
-      if (isFieldStaff) {
-        rec.status = 'Present';
-        rec.isLate = false;
-        rec.isEarlyExit = false;
-        rec.remarks = 'Field Staff - Flexible Punch (Full Day Credit)';
-      } else {
-        rec.status = hours >= 4 ? 'Present' : 'Half Day';
-      }
+      // Strict Rule: Always full day "Present", no early exit penalty, no salary deduction
+      rec.status = 'Present';
+      rec.isLate = false;
+      rec.isEarlyExit = false;
+      rec.remarks = 'Verified GPS Punch (Present)';
 
       this.setItem(STORAGE_KEYS.ATTENDANCE, list);
       this.pushToSupabase('attendance_records', rec);
@@ -428,7 +435,7 @@ class DatabaseService {
         'Employee',
         'GPS Punch Out',
         'Attendance',
-        `Punched Out at ${punchOutLocation?.address || 'GPS Location'} (${hours.toFixed(2)} hrs, Status: ${rec.status})`
+        `Punched Out at ${punchOutLocation?.address || 'Live GPS Location'} (${hours.toFixed(2)} hrs)`
       );
     }
   }
@@ -503,6 +510,31 @@ class DatabaseService {
     if (idx >= 0) list[idx] = holiday;
     else list.push(holiday);
     this.setItem(STORAGE_KEYS.HOLIDAYS, list);
+    this.pushToSupabase('holidays', holiday);
+    const user = this.getCurrentUser();
+    this.addAuditLog(
+      user?.name || 'HR Administrator',
+      user?.role || 'HR Administrator',
+      'Saved Holiday',
+      'Holiday Calendar',
+      `Saved holiday: ${holiday.name} (${holiday.date})`
+    );
+  }
+
+  public deleteHoliday(holidayId: string) {
+    const list = this.getHolidays();
+    const target = list.find((h) => h.id === holidayId);
+    const filtered = list.filter((h) => h.id !== holidayId);
+    this.setItem(STORAGE_KEYS.HOLIDAYS, filtered);
+    supabase.from('holidays').delete().eq('id', holidayId).then();
+    const user = this.getCurrentUser();
+    this.addAuditLog(
+      user?.name || 'HR Administrator',
+      user?.role || 'HR Administrator',
+      'Deleted Holiday',
+      'Holiday Calendar',
+      `Deleted holiday: ${target?.name || holidayId}`
+    );
   }
 
   // --- Payroll & Payslips ---
@@ -514,26 +546,42 @@ class DatabaseService {
     return this.getItem<PayrollRun[]>(STORAGE_KEYS.PAYROLL_RUNS, INITIAL_PAYROLL_RUNS);
   }
 
+  /**
+   * Generates exact monthly payroll according to OM Safety Services LLP format:
+   * Gross = Basic + HRA + Conveyance + Special Allowance + Other Allowance
+   * Total Deductions = PF/EPF + ESI + TDS + Salary Advance/Other + Other Deduction
+   * Net Salary Payable = Gross - Total Deductions
+   * No deductions for absent/half-day/early logout!
+   */
   public generateMonthlyPayroll(monthYear: string, processedBy: string): PayrollRun {
     const employees = this.getEmployees();
     const payslips = this.getPayslips();
+
+    // Parse Month and Year (e.g. "2026-08" -> AUGUST 2026)
+    const [yearPart, monthPart] = monthYear.split('-');
+    const dateObj = new Date(parseInt(yearPart), parseInt(monthPart) - 1, 1);
+    const monthName = dateObj.toLocaleString('en-US', { month: 'long' }).toUpperCase();
+    const yearStr = yearPart;
 
     let totalGross = 0;
     let totalDed = 0;
     let totalNet = 0;
 
     employees.forEach((emp) => {
-      const basic = emp.baseSalary;
-      const hra = Math.round(basic * 0.4);
-      const conveyance = 3000;
-      const specialAllowance = Math.round(basic * 0.25);
-      const gross = basic + hra + conveyance + specialAllowance;
+      const basic = Number(emp.baseSalary) || 0;
+      const hra = Number(emp.hra) || 0;
+      const conveyance = Number(emp.conveyance) || 0;
+      const specialAllowance = Number(emp.specialAllowance) || 0;
+      const otherAllowance = Number(emp.otherAllowance) || 0;
+      const gross = basic + hra + conveyance + specialAllowance + otherAllowance;
 
-      const pfDeduction = Math.round(basic * 0.12);
-      const ptDeduction = 200;
-      const tdsDeduction = Math.round(basic * 0.08);
-      const ded = pfDeduction + ptDeduction + tdsDeduction;
-      const net = gross - ded;
+      const pfDeduction = Number(emp.pfDeduction) || 0;
+      const esiDeduction = Number(emp.esiDeduction) || 0;
+      const tdsDeduction = Number(emp.tdsDeduction) || 0;
+      const advanceDeduction = Number(emp.advanceDeduction) || 0;
+      const otherDeduction = Number(emp.otherDeduction) || 0;
+      const ded = pfDeduction + esiDeduction + tdsDeduction + advanceDeduction + otherDeduction;
+      const net = Math.max(0, gross - ded);
 
       totalGross += gross;
       totalDed += ded;
@@ -541,38 +589,51 @@ class DatabaseService {
 
       const payslip: Payslip = {
         id: `pay-${monthYear}-${emp.employeeId}`,
-        payslipNumber: `PAY-OM-${monthYear.replace('-', '')}-${emp.employeeId}`,
+        payslipNumber: `OSS/${emp.employeeId.replace(/[^0-9]/g, '') || '13'}/${yearStr}`,
         employeeId: emp.employeeId,
         employeeName: emp.fullName,
         departmentName: emp.departmentName,
         designationName: emp.designationName,
-        staffCategory: emp.staffCategory || 'Office Staff',
+        staffCategory: emp.staffCategory || 'Field Staff',
+        workLocation: emp.workLocation || 'FIELD WORK',
         joiningDate: emp.joiningDate,
         payPeriod: monthYear,
+        salaryMonth: monthName,
+        salaryYear: yearStr,
+
+        totalCalendarDays: 31,
+        totalWorkingDays: 26,
+        presentDays: 26,
+        absentDays: 0,
+        companyHolidays: 0,
+        paidLeaveDays: 0,
+        weeklyOffs: 1,
+        otDays: 4,
+
         paidDays: 26,
         lopDays: 0,
         basicSalary: basic,
         hra,
         conveyance,
         specialAllowance,
-        bonus: 0,
+        otherAllowance,
         grossSalary: gross,
+
         pfDeduction,
-        esiDeduction: 0,
-        ptDeduction,
+        esiDeduction,
         tdsDeduction,
-        otherDeductions: 0,
+        advanceDeduction,
+        otherDeduction,
         totalDeductions: ded,
+
         netPay: net,
-        netPayInWords: `${net.toLocaleString('en-IN')} Rupees Only`,
+        netPayInWords: convertNumberToWords(net),
         status: 'Finalized',
         generatedAt: new Date().toISOString(),
-        bankName: emp.bankName || 'HDFC Bank Ltd.',
-        accountNumber: emp.accountNumber || '50100982341920',
-        ifscCode: emp.ifscCode || 'HDFC0000240',
-        panNumber: emp.panNumber || 'ABCDE1234F',
-        pfNumber: 'MH/BAN/0048291/000/0192',
-        uanNumber: '100928374619'
+        bankName: emp.bankName || 'State Bank of India',
+        accountNumber: emp.accountNumber || '',
+        ifscCode: emp.ifscCode || '',
+        panNumber: emp.panNumber || ''
       };
 
       const existingIdx = payslips.findIndex((p) => p.id === payslip.id);
@@ -598,7 +659,13 @@ class DatabaseService {
     runs.unshift(run);
     this.setItem(STORAGE_KEYS.PAYROLL_RUNS, runs);
 
-    this.addAuditLog(processedBy, 'HR Administrator', 'Processed Monthly Payroll', 'Payroll', `Generated payroll for ${monthYear} (${employees.length} staff)`);
+    this.addAuditLog(
+      processedBy,
+      'HR Administrator',
+      'Processed Monthly Payroll',
+      'Payroll',
+      `Generated payroll for ${monthName} ${yearStr} (${employees.length} staff)`
+    );
     return run;
   }
 

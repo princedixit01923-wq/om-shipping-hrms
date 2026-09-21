@@ -57,12 +57,22 @@ export const EmployeeDirectory: React.FC = () => {
   const [maritalStatus, setMaritalStatus] = useState<'Single' | 'Married' | 'Divorced' | 'Widowed'>('Single');
   const [spouseName, setSpouseName] = useState('');
   const [status, setStatus] = useState<'Active' | 'Inactive'>('Active');
-  const [departmentName, setDepartmentName] = useState('');
-  const [designationName, setDesignationName] = useState('');
-  const [staffCategory, setStaffCategory] = useState<'Office Staff' | 'Field Staff'>('Office Staff');
+  const [departmentName, setDepartmentName] = useState('Technical Department');
+  const [designationName, setDesignationName] = useState('Technician');
+  const [staffCategory, setStaffCategory] = useState<'Office Staff' | 'Field Staff'>('Field Staff');
+  const [workLocation, setWorkLocation] = useState('FIELD WORK');
   const [joiningDate, setJoiningDate] = useState('');
-  const [selectedShiftId, setSelectedShiftId] = useState('sh-1');
-  const [baseSalary, setBaseSalary] = useState(50000);
+  const [selectedShiftId, setSelectedShiftId] = useState('sh-tech-flex');
+  const [baseSalary, setBaseSalary] = useState(22000);
+  const [hra, setHra] = useState<number | ''>(0);
+  const [conveyance, setConveyance] = useState<number | ''>(0);
+  const [specialAllowance, setSpecialAllowance] = useState<number | ''>(0);
+  const [otherAllowance, setOtherAllowance] = useState<number | ''>(0);
+  const [pfDeduction, setPfDeduction] = useState<number | ''>(0);
+  const [esiDeduction, setEsiDeduction] = useState<number | ''>(0);
+  const [tdsDeduction, setTdsDeduction] = useState<number | ''>(0);
+  const [advanceDeduction, setAdvanceDeduction] = useState<number | ''>(0);
+  const [otherDeduction, setOtherDeduction] = useState<number | ''>(0);
   const [address, setAddress] = useState('');
   const [profilePhoto, setProfilePhoto] = useState('https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150');
 
@@ -110,12 +120,22 @@ export const EmployeeDirectory: React.FC = () => {
       setMaritalStatus(emp.maritalStatus || 'Single');
       setSpouseName(emp.spouseName || '');
       setStatus(emp.status || 'Active');
-      setDepartmentName(emp.departmentName || '');
-      setDesignationName(emp.designationName || '');
-      setStaffCategory(emp.staffCategory || 'Office Staff');
-      setJoiningDate(emp.joiningDate || '2026-01-01');
-      setSelectedShiftId(emp.shiftId || 'sh-1');
-      setBaseSalary(emp.baseSalary || 50000);
+      setDepartmentName(emp.departmentName || 'Technical Department');
+      setDesignationName(emp.designationName || 'Technician');
+      setStaffCategory(emp.staffCategory || 'Field Staff');
+      setWorkLocation(emp.workLocation || 'FIELD WORK');
+      setJoiningDate(emp.joiningDate || '2026-07-01');
+      setSelectedShiftId(emp.shiftId || (emp.departmentName === 'Technical Department' ? 'sh-tech-flex' : 'sh-1'));
+      setBaseSalary(emp.baseSalary !== undefined ? emp.baseSalary : 22000);
+      setHra(emp.hra !== undefined ? emp.hra : 0);
+      setConveyance(emp.conveyance !== undefined ? emp.conveyance : 0);
+      setSpecialAllowance(emp.specialAllowance !== undefined ? emp.specialAllowance : 0);
+      setOtherAllowance(emp.otherAllowance !== undefined ? emp.otherAllowance : 0);
+      setPfDeduction(emp.pfDeduction !== undefined ? emp.pfDeduction : 0);
+      setEsiDeduction(emp.esiDeduction !== undefined ? emp.esiDeduction : 0);
+      setTdsDeduction(emp.tdsDeduction !== undefined ? emp.tdsDeduction : 0);
+      setAdvanceDeduction(emp.advanceDeduction !== undefined ? emp.advanceDeduction : 0);
+      setOtherDeduction(emp.otherDeduction !== undefined ? emp.otherDeduction : 0);
       setAddress(emp.address || '');
       setProfilePhoto(emp.profilePhoto || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150');
     } else {
@@ -139,12 +159,22 @@ export const EmployeeDirectory: React.FC = () => {
       setMaritalStatus('Single');
       setSpouseName('');
       setStatus('Active');
-      setDepartmentName('Fleet Operations');
-      setDesignationName('Senior Logistics Officer');
-      setStaffCategory('Office Staff');
+      setDepartmentName('Technical Department');
+      setDesignationName('Technician');
+      setStaffCategory('Field Staff');
+      setWorkLocation('FIELD WORK');
       setJoiningDate(new Date().toISOString().split('T')[0]);
-      setSelectedShiftId('sh-1');
-      setBaseSalary(50000);
+      setSelectedShiftId('sh-tech-flex');
+      setBaseSalary(22000);
+      setHra(0);
+      setConveyance(0);
+      setSpecialAllowance(0);
+      setOtherAllowance(0);
+      setPfDeduction(0);
+      setEsiDeduction(0);
+      setTdsDeduction(0);
+      setAdvanceDeduction(0);
+      setOtherDeduction(0);
       setAddress('');
       setProfilePhoto('https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150');
     }
@@ -158,9 +188,9 @@ export const EmployeeDirectory: React.FC = () => {
       return;
     }
 
-    const autoEmpId = customEmpId.trim() || `OM00${employees.length + 10}`;
+    const autoEmpId = customEmpId.trim() || `OSS/${employees.length + 10}/2026`;
     const autoPin = biometricPin.trim() || `${1000 + employees.length + 1}`;
-    const targetShift = shifts.find((s) => s.id === selectedShiftId) || shifts[0] || { id: 'sh-1', name: 'General Shift' };
+    const targetShift = shifts.find((s) => s.id === selectedShiftId) || shifts[0] || { id: 'sh-1', name: 'Shift A' };
     const full = `${title} ${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
 
     const updated: Employee = {
@@ -176,7 +206,7 @@ export const EmployeeDirectory: React.FC = () => {
       employeeId: autoEmpId,
       biometricPin: autoPin,
       email,
-      portalPassword: portalPassword || 'Password123',
+      portalPassword: portalPassword || 'OM0001',
       mobile,
       alternateMobile,
       gender,
@@ -185,18 +215,28 @@ export const EmployeeDirectory: React.FC = () => {
       maritalStatus,
       spouseName,
       status,
-      departmentName: departmentName || 'Operations',
-      designationName: designationName || 'Staff Officer',
-      staffCategory: staffCategory || 'Office Staff',
+      departmentName: departmentName || 'Technical Department',
+      designationName: designationName || 'Technician',
+      staffCategory: staffCategory || 'Field Staff',
+      workLocation: workLocation || 'FIELD WORK',
       joiningDate: joiningDate || new Date().toISOString().split('T')[0],
       shiftId: targetShift.id,
       shiftName: targetShift.name,
-      baseSalary,
+      baseSalary: Number(baseSalary) || 0,
+      hra: Number(hra) || 0,
+      conveyance: Number(conveyance) || 0,
+      specialAllowance: Number(specialAllowance) || 0,
+      otherAllowance: Number(otherAllowance) || 0,
+      pfDeduction: Number(pfDeduction) || 0,
+      esiDeduction: Number(esiDeduction) || 0,
+      tdsDeduction: Number(tdsDeduction) || 0,
+      advanceDeduction: Number(advanceDeduction) || 0,
+      otherDeduction: Number(otherDeduction) || 0,
       address: address || 'Corporate Headquarters',
       profilePhoto,
-      bankName: editingEmp?.bankName || 'HDFC Bank Ltd.',
-      accountNumber: editingEmp?.accountNumber || '50100982341920',
-      ifscCode: editingEmp?.ifscCode || 'HDFC0000240',
+      bankName: editingEmp?.bankName || 'State Bank of India',
+      accountNumber: editingEmp?.accountNumber || '38901248912',
+      ifscCode: editingEmp?.ifscCode || 'SBIN0001234',
       panNumber: editingEmp?.panNumber || 'ABCDE1234F',
       aadhaarNumber: editingEmp?.aadhaarNumber || '1234-5678-9012'
     };
@@ -395,13 +435,16 @@ export const EmployeeDirectory: React.FC = () => {
         </div>
 
         <div>
-          <input
-            type="text"
-            value={selectedDeptFilter === 'All' ? '' : selectedDeptFilter}
-            onChange={(e) => setSelectedDeptFilter(e.target.value || 'All')}
-            placeholder="Filter by Department..."
-            className="w-full px-3.5 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:bg-white transition-all"
-          />
+          <select
+            value={selectedDeptFilter}
+            onChange={(e) => setSelectedDeptFilter(e.target.value)}
+            className="w-full px-3.5 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-500/50 focus:bg-white transition-all"
+          >
+            <option value="All">All Departments</option>
+            <option value="Sales Department">Sales Department</option>
+            <option value="Finance Department">Finance Department</option>
+            <option value="Technical Department">Technical Department</option>
+          </select>
         </div>
 
         <div>
@@ -913,8 +956,8 @@ export const EmployeeDirectory: React.FC = () => {
                 </div>
               </div>
 
-              {/* Row 6: Staff Category, Department, Designation, Status */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 border-t border-slate-100">
+              {/* Row 6: Staff Category, Department (3 options), Designation, Work Location, Status */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 pt-2 border-t border-slate-100">
                 {/* --- STAFF CATEGORY SELECTOR --- */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">STAFF CATEGORY *</label>
@@ -923,21 +966,32 @@ export const EmployeeDirectory: React.FC = () => {
                     onChange={(e) => setStaffCategory(e.target.value as any)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-blue-900 focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="Office Staff">Office Staff (Fixed Shift)</option>
                     <option value="Field Staff">Field Staff (Flexible Full Day)</option>
+                    <option value="Office Staff">Office Staff (Fixed Shift)</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">DEPARTMENT *</label>
-                  <input
-                    type="text"
+                  <select
                     required
                     value={departmentName}
-                    onChange={(e) => setDepartmentName(e.target.value)}
-                    placeholder="e.g. Fleet Operations"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900"
-                  />
+                    onChange={(e) => {
+                      const newDept = e.target.value;
+                      setDepartmentName(newDept);
+                      if (newDept === 'Technical Department') {
+                        setStaffCategory('Field Staff');
+                        setSelectedShiftId('sh-tech-flex');
+                      } else {
+                        setSelectedShiftId('sh-1');
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
+                  >
+                    <option value="Sales Department">Sales Department</option>
+                    <option value="Finance Department">Finance Department</option>
+                    <option value="Technical Department">Technical Department</option>
+                  </select>
                 </div>
 
                 <div>
@@ -947,7 +1001,18 @@ export const EmployeeDirectory: React.FC = () => {
                     required
                     value={designationName}
                     onChange={(e) => setDesignationName(e.target.value)}
-                    placeholder="e.g. Senior Logistics Officer"
+                    placeholder="e.g. Technician"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">WORK LOCATION</label>
+                  <input
+                    type="text"
+                    value={workLocation}
+                    onChange={(e) => setWorkLocation(e.target.value)}
+                    placeholder="e.g. FIELD WORK, GANDHIDHAM"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900"
                   />
                 </div>
@@ -965,8 +1030,8 @@ export const EmployeeDirectory: React.FC = () => {
                 </div>
               </div>
 
-              {/* Row 7: Date of Joining (Calendar Trigger), Shift Assignment, Base Salary */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* Row 7: Date of Joining & Shift Assignment */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">DATE OF JOINING *</label>
                   <div className="relative flex items-center">
@@ -1006,17 +1071,171 @@ export const EmployeeDirectory: React.FC = () => {
                     ))}
                   </select>
                 </div>
+              </div>
 
+              {/* Comprehensive Salary Breakdown (Earnings & Deductions matching Salary Slip format) */}
+              <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50/50 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <div>
+                    <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
+                      Salary Structure & Compensation Breakdown
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      All allowance & deduction boxes are optional. If left blank, counted as ₹0.
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                    Auto Calculated Net
+                  </span>
+                </div>
+
+                {/* Earnings Row */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">BASE SALARY (INR)</label>
-                  <input
-                    type="number"
-                    required
-                    value={baseSalary}
-                    onChange={(e) => setBaseSalary(Number(e.target.value))}
-                    placeholder="50000"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900"
-                  />
+                  <span className="text-xs font-bold text-emerald-800 uppercase block mb-2">
+                    Earnings / Allowances (INR)
+                  </span>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">BASIC SALARY</label>
+                      <input
+                        type="number"
+                        value={baseSalary}
+                        onChange={(e) => setBaseSalary(e.target.value === '' ? ('' as any) : Number(e.target.value))}
+                        placeholder="22000"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">HOUSE RENT (HRA)</label>
+                      <input
+                        type="number"
+                        value={hra}
+                        onChange={(e) => setHra(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">CONVEYANCE</label>
+                      <input
+                        type="number"
+                        value={conveyance}
+                        onChange={(e) => setConveyance(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">SPECIAL ALLOWANCE</label>
+                      <input
+                        type="number"
+                        value={specialAllowance}
+                        onChange={(e) => setSpecialAllowance(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">OTHER ALLOWANCE</label>
+                      <input
+                        type="number"
+                        value={otherAllowance}
+                        onChange={(e) => setOtherAllowance(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Deductions Row */}
+                <div>
+                  <span className="text-xs font-bold text-rose-800 uppercase block mb-2">
+                    Deductions (INR)
+                  </span>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">PF / EPF</label>
+                      <input
+                        type="number"
+                        value={pfDeduction}
+                        onChange={(e) => setPfDeduction(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">ESI</label>
+                      <input
+                        type="number"
+                        value={esiDeduction}
+                        onChange={(e) => setEsiDeduction(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">TDS (TAX)</label>
+                      <input
+                        type="number"
+                        value={tdsDeduction}
+                        onChange={(e) => setTdsDeduction(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">SALARY ADVANCE</label>
+                      <input
+                        type="number"
+                        value={advanceDeduction}
+                        onChange={(e) => setAdvanceDeduction(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">OTHER DEDUCTION</label>
+                      <input
+                        type="number"
+                        value={otherDeduction}
+                        onChange={(e) => setOtherDeduction(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="0"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Net Salary Payable Live Banner */}
+                <div className="bg-white border-2 border-blue-600 rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-2xs">
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-500 uppercase tracking-wider block text-[10px]">
+                      FORMULA APPLIED
+                    </span>
+                    <span className="font-semibold text-slate-800">
+                      Basic (₹{(Number(baseSalary) || 0).toLocaleString('en-IN')}) + All Allowances (₹{((Number(hra) || 0) + (Number(conveyance) || 0) + (Number(specialAllowance) || 0) + (Number(otherAllowance) || 0)).toLocaleString('en-IN')}) - Total Deductions (₹{((Number(pfDeduction) || 0) + (Number(esiDeduction) || 0) + (Number(tdsDeduction) || 0) + (Number(advanceDeduction) || 0) + (Number(otherDeduction) || 0)).toLocaleString('en-IN')})
+                    </span>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span className="text-[10px] uppercase font-extrabold text-blue-700 block">NET SALARY PAYABLE</span>
+                    <span className="text-lg font-black text-slate-900 font-mono">
+                      ₹{Math.max(
+                        0,
+                        (Number(baseSalary) || 0) +
+                          (Number(hra) || 0) +
+                          (Number(conveyance) || 0) +
+                          (Number(specialAllowance) || 0) +
+                          (Number(otherAllowance) || 0) -
+                          ((Number(pfDeduction) || 0) +
+                            (Number(esiDeduction) || 0) +
+                            (Number(tdsDeduction) || 0) +
+                            (Number(advanceDeduction) || 0) +
+                            (Number(otherDeduction) || 0))
+                      ).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
                 </div>
               </div>
 

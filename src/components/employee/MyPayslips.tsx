@@ -3,6 +3,7 @@ import { CreditCard, Download, FileCheck, DollarSign } from 'lucide-react';
 import { Employee, Payslip, CompanySettings } from '../../types';
 import { dbService } from '../../services/dbService';
 import { generatePayslipPDF } from '../../services/pdfService';
+import { convertNumberToWords } from '../../utils/numberToWords';
 import { Badge } from '../common/Badge';
 
 interface MyPayslipsProps {
@@ -23,53 +24,73 @@ export const MyPayslips: React.FC<MyPayslipsProps> = ({ employee, settings }) =>
   };
 
   const handleGenerateAndDownloadCurrent = async () => {
-    const monthYear = new Date().toISOString().substring(0, 7); // e.g. 2026-09
-    const basic = employee.baseSalary || 65000;
-    const hra = Math.round(basic * 0.4);
-    const conveyance = 3000;
-    const specialAllowance = Math.round(basic * 0.25);
-    const gross = basic + hra + conveyance + specialAllowance;
+    const now = new Date();
+    const monthName = now.toLocaleString('en-US', { month: 'long' }).toUpperCase();
+    const yearStr = String(now.getFullYear());
+    const monthYear = `${yearStr}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    const pfDeduction = Math.round(basic * 0.12);
-    const ptDeduction = 200;
-    const tdsDeduction = Math.round(basic * 0.08);
-    const ded = pfDeduction + ptDeduction + tdsDeduction;
-    const net = gross - ded;
+    const basic = Number(employee.baseSalary) || 22000;
+    const hra = Number(employee.hra) || 0;
+    const conveyance = Number(employee.conveyance) || 0;
+    const specialAllowance = Number(employee.specialAllowance) || 0;
+    const otherAllowance = Number(employee.otherAllowance) || 0;
+    const gross = basic + hra + conveyance + specialAllowance + otherAllowance;
+
+    const pfDeduction = Number(employee.pfDeduction) || 0;
+    const esiDeduction = Number(employee.esiDeduction) || 0;
+    const tdsDeduction = Number(employee.tdsDeduction) || 0;
+    const advanceDeduction = Number(employee.advanceDeduction) || 0;
+    const otherDeduction = Number(employee.otherDeduction) || 0;
+    const ded = pfDeduction + esiDeduction + tdsDeduction + advanceDeduction + otherDeduction;
+    const net = Math.max(0, gross - ded);
 
     const instantPayslip: Payslip = {
       id: `pay-${monthYear}-${employee.employeeId}`,
-      payslipNumber: `PAY-OM-${monthYear.replace('-', '')}-${employee.employeeId}`,
+      payslipNumber: `OSS/${employee.employeeId.replace(/[^0-9]/g, '') || '13'}/${yearStr}`,
       employeeId: employee.employeeId,
       employeeName: employee.fullName,
-      departmentName: employee.departmentName || 'Fleet Operations',
-      designationName: employee.designationName || 'Senior Logistics Officer',
-      staffCategory: employee.staffCategory || 'Office Staff',
-      joiningDate: employee.joiningDate || '2026-01-01',
+      departmentName: employee.departmentName || 'Technical Department',
+      designationName: employee.designationName || 'Technician',
+      staffCategory: employee.staffCategory || 'Field Staff',
+      workLocation: employee.workLocation || 'FIELD WORK',
+      joiningDate: employee.joiningDate || '2026-07-01',
       payPeriod: monthYear,
+      salaryMonth: monthName,
+      salaryYear: yearStr,
+
+      totalCalendarDays: 31,
+      totalWorkingDays: 26,
+      presentDays: 26,
+      absentDays: 0,
+      companyHolidays: 0,
+      paidLeaveDays: 0,
+      weeklyOffs: 1,
+      otDays: 4,
+
       paidDays: 26,
       lopDays: 0,
       basicSalary: basic,
       hra,
       conveyance,
       specialAllowance,
-      bonus: 0,
+      otherAllowance,
       grossSalary: gross,
+
       pfDeduction,
-      esiDeduction: 0,
-      ptDeduction,
+      esiDeduction,
       tdsDeduction,
-      otherDeductions: 0,
+      advanceDeduction,
+      otherDeduction,
       totalDeductions: ded,
+
       netPay: net,
-      netPayInWords: `${net.toLocaleString('en-IN')} Rupees Only`,
+      netPayInWords: convertNumberToWords(net),
       status: 'Finalized',
       generatedAt: new Date().toISOString(),
-      bankName: employee.bankName || 'HDFC Bank Ltd.',
-      accountNumber: employee.accountNumber || '50100982341920',
-      ifscCode: employee.ifscCode || 'HDFC0000240',
-      panNumber: employee.panNumber || 'ABCDE1234F',
-      pfNumber: 'MH/BAN/0048291/000/0192',
-      uanNumber: '100928374619'
+      bankName: employee.bankName || 'State Bank of India',
+      accountNumber: employee.accountNumber || '',
+      ifscCode: employee.ifscCode || '',
+      panNumber: employee.panNumber || ''
     };
 
     await generatePayslipPDF(instantPayslip, settings);

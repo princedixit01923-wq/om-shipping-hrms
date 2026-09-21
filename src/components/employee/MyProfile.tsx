@@ -143,13 +143,9 @@ export const MyProfile: React.FC<MyProfileProps> = ({ employee: initialEmp }) =>
               <span className="text-slate-500">Assigned Shift:</span>
               <span className="font-bold text-[#1d4ed8]">{employee.shiftName}</span>
             </div>
-            <div className="flex justify-between py-1.5 border-b border-slate-100">
+            <div className="flex justify-between py-1.5">
               <span className="text-slate-500">Biometric PIN:</span>
               <span className="font-mono font-bold text-slate-900">{employee.biometricPin}</span>
-            </div>
-            <div className="flex justify-between py-1.5">
-              <span className="text-slate-500">Portal Password:</span>
-              <span className="font-mono text-slate-700">••••••••</span>
             </div>
           </div>
         </div>

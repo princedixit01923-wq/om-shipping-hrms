@@ -81,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2 sm:gap-3">
           <img
             src={settings.logoUrl || '/assets/om_logo.jpg'}
-            alt="OM Shipping Ltd."
+            alt="OM Safety Services LLP"
             className="h-8 sm:h-9 w-auto object-contain bg-white rounded-md p-0.5 border border-slate-200"
             onError={(e) => {
               (e.target as HTMLImageElement).src = '/assets/om_logo.jpg';
@@ -89,10 +89,10 @@ export const Header: React.FC<HeaderProps> = ({
           />
           <div>
             <span className="font-extrabold text-sm sm:text-base tracking-tight text-slate-900 block leading-none">
-              OM Shipping Ltd.
+              OM Safety Services LLP
             </span>
-            <span className="text-[9px] sm:text-[10px] font-bold text-blue-600 uppercase tracking-widest block mt-0.5">
-              HRMS By Priva
+            <span className="text-[9px] sm:text-[10px] font-bold text-blue-600 uppercase tracking-wider block mt-0.5">
+              ONCE WITH US SAFE WITH US
             </span>
           </div>
         </div>
@@ -111,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: Notifications & User Profile */}
+      {/* Right: Notifications & Sign Out */}
       <div className="flex items-center gap-2 sm:gap-2.5">
         {/* Notifications */}
         <div className="relative">
@@ -147,45 +147,33 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* User Profile */}
-        <div className="relative">
+        {/* Clean Direct Sign Out (HR profile removed as requested in item 17.2) */}
+        {user.role === 'HR Administrator' ? (
           <button
-            onClick={() => setShowProfileMenu(!showProfileMenu)}
-            className="flex items-center gap-2.5 p-1 pr-2.5 rounded-lg hover:bg-slate-100 transition-colors text-left border border-slate-200"
+            onClick={onLogout}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-all border border-rose-200 active:scale-95 cursor-pointer shadow-2xs"
+            title="Sign out of HR Administration"
           >
+            <LogOut className="w-3.5 h-3.5 text-rose-600" />
+            <span>Sign Out</span>
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
             <img
-              src={user.avatarUrl || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150'}
+              src={user.avatarUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'}
               alt={user.name}
               className="w-7 h-7 rounded-full object-cover border border-slate-300"
             />
-            <div className="hidden lg:block">
-              <span className="font-semibold text-xs text-slate-900 block leading-tight">{user.name}</span>
-              <span className="text-[10px] font-medium text-blue-600 block">{user.role}</span>
-            </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden lg:block" />
-          </button>
-
-          {showProfileMenu && (
-            <div className="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50 animate-fade-in">
-              <div className="px-4 py-2.5 border-b border-slate-100">
-                <span className="font-semibold text-xs text-slate-900 block">{user.name}</span>
-                <span className="text-[11px] text-slate-500 block truncate">{user.email}</span>
-              </div>
-
-              <div className="p-1">
-                <button
-                  onClick={() => {
-                    setShowProfileMenu(false);
-                    onLogout();
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                >
-                  <LogOut className="w-3.5 h-3.5" /> Sign Out
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+            <button
+              onClick={onLogout}
+              className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-lg text-xs font-semibold transition-colors"
+              title="Sign Out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

@@ -55,11 +55,22 @@ export interface Employee {
   designationName: string;
   
   staffCategory?: 'Office Staff' | 'Field Staff'; // Office Staff (fixed shift) vs Field Staff (flexible time)
+  workLocation?: string; // e.g. FIELD WORK, GANDHIDHAM OFFICE, etc.
 
   shiftId: string;
   shiftName: string;
 
   baseSalary: number;
+  hra?: number;
+  conveyance?: number;
+  specialAllowance?: number;
+  otherAllowance?: number;
+
+  pfDeduction?: number;
+  esiDeduction?: number;
+  tdsDeduction?: number;
+  advanceDeduction?: number;
+  otherDeduction?: number;
   
   bankName?: string;
   accountNumber?: string;
@@ -167,8 +178,21 @@ export interface Payslip {
   departmentName: string;
   designationName: string;
   staffCategory?: 'Office Staff' | 'Field Staff';
+  workLocation?: string;
   joiningDate: string;
   payPeriod: string;
+  salaryMonth?: string;
+  salaryYear?: string;
+
+  totalCalendarDays?: number;
+  totalWorkingDays?: number;
+  presentDays?: number;
+  absentDays?: number;
+  companyHolidays?: number;
+  paidLeaveDays?: number;
+  weeklyOffs?: number;
+  otDays?: number;
+
   paidDays: number;
   lopDays: number;
   
@@ -176,13 +200,16 @@ export interface Payslip {
   hra: number;
   conveyance: number;
   specialAllowance: number;
+  otherAllowance?: number;
   bonus?: number;
   grossSalary: number;
 
   pfDeduction: number;
   esiDeduction: number;
-  ptDeduction: number;
+  ptDeduction?: number;
   tdsDeduction: number;
+  advanceDeduction?: number;
+  otherDeduction?: number;
   otherDeductions?: number;
   totalDeductions: number;
 

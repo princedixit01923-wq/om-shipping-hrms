@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Plus, Calendar, CheckCircle2, Clock, XCircle, Paperclip } from 'lucide-react';
+import { FileText, Plus, Calendar } from 'lucide-react';
 import { Employee, LeaveRequest, LeaveType } from '../../types';
 import { dbService } from '../../services/dbService';
 import { Badge } from '../common/Badge';
@@ -17,7 +17,6 @@ export const LeaveApplication: React.FC<LeaveApplicationProps> = ({ employee }) 
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [reason, setReason] = useState('');
-  const [attachmentName, setAttachmentName] = useState('');
 
   const reloadLeaves = () => {
     const list = dbService.getLeaveRequests().filter((r) => r.employeeId === employee.employeeId);
@@ -57,7 +56,6 @@ export const LeaveApplication: React.FC<LeaveApplicationProps> = ({ employee }) 
       toDate,
       totalDays,
       reason,
-      attachmentName: attachmentName || undefined,
       status: 'Pending',
       createdAt: new Date().toISOString()
     };
@@ -67,7 +65,6 @@ export const LeaveApplication: React.FC<LeaveApplicationProps> = ({ employee }) 
     setFromDate('');
     setToDate('');
     setReason('');
-    setAttachmentName('');
   };
 
   const balances = {
@@ -232,19 +229,6 @@ export const LeaveApplication: React.FC<LeaveApplicationProps> = ({ employee }) 
                   placeholder="Explain brief reason for leave request..."
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0055a5]"
                 />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Attachment (Optional)</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={attachmentName}
-                    onChange={(e) => setAttachmentName(e.target.value)}
-                    placeholder="Medical_Certificate.pdf"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none"
-                  />
-                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">

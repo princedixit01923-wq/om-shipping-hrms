@@ -48,10 +48,20 @@ CREATE TABLE IF NOT EXISTS employees (
   status TEXT DEFAULT 'Active',
   "departmentName" TEXT NOT NULL,
   "designationName" TEXT NOT NULL,
-  "staffCategory" TEXT DEFAULT 'Office Staff',
+  "staffCategory" TEXT DEFAULT 'Field Staff',
+  "workLocation" TEXT DEFAULT 'FIELD WORK',
   "shiftId" TEXT REFERENCES shifts(id) ON DELETE SET NULL,
   "shiftName" TEXT NOT NULL,
-  "baseSalary" NUMERIC DEFAULT 50000,
+  "baseSalary" NUMERIC DEFAULT 22000,
+  hra NUMERIC DEFAULT 0,
+  conveyance NUMERIC DEFAULT 0,
+  "specialAllowance" NUMERIC DEFAULT 0,
+  "otherAllowance" NUMERIC DEFAULT 0,
+  "pfDeduction" NUMERIC DEFAULT 0,
+  "esiDeduction" NUMERIC DEFAULT 0,
+  "tdsDeduction" NUMERIC DEFAULT 0,
+  "advanceDeduction" NUMERIC DEFAULT 0,
+  "otherDeduction" NUMERIC DEFAULT 0,
   "bankName" TEXT,
   "accountNumber" TEXT,
   "ifscCode" TEXT,
@@ -59,6 +69,18 @@ CREATE TABLE IF NOT EXISTS employees (
   "aadhaarNumber" TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Ensure newly added columns exist in previously provisioned databases
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "workLocation" TEXT DEFAULT 'FIELD WORK';
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS hra NUMERIC DEFAULT 0;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS conveyance NUMERIC DEFAULT 0;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "specialAllowance" NUMERIC DEFAULT 0;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "otherAllowance" NUMERIC DEFAULT 0;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "pfDeduction" NUMERIC DEFAULT 0;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "esiDeduction" NUMERIC DEFAULT 0;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "tdsDeduction" NUMERIC DEFAULT 0;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "advanceDeduction" NUMERIC DEFAULT 0;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "otherDeduction" NUMERIC DEFAULT 0;
 
 -- 3. ATTENDANCE RECORDS TABLE
 CREATE TABLE IF NOT EXISTS attendance_records (

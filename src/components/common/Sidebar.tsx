@@ -55,6 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'hr-corrections', label: 'Time Correction Approvals', icon: Clock },
     { id: 'hr-employees', label: 'Employee Directory', icon: Users },
     { id: 'hr-payroll', label: 'Payroll & Payslips', icon: DollarSign },
+    { id: 'hr-holidays', label: 'Holiday Calendar', icon: CalendarDays },
     { id: 'hr-shifts', label: 'Shift Schedules', icon: Sliders },
     { id: 'hr-announcements', label: 'Announcements', icon: Megaphone },
     { id: 'hr-audit', label: 'Security Audit Logs', icon: ShieldAlert },

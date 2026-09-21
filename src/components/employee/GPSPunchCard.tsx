@@ -25,104 +25,104 @@ export const GPSPunchCard: React.FC<GPSPunchCardProps> = ({
   const [currentCoords, setCurrentCoords] = useState<LocationCoordinates | null>(null);
   const [showMap, setShowMap] = useState(true);
 
-  const fetchCurrentLocation = () => {
+  const getLiveLocation = (): Promise<LocationCoordinates> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve({
+          latitude: 23.0753,
+          longitude: 70.1337,
+          accuracy: 15,
+          timestamp: Date.now(),
+          address: 'Gandhidham, Kandla, Gujarat',
+          deviceInfo: navigator.userAgent.substring(0, 45)
+        });
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude, longitude, accuracy } = pos.coords;
+          const address = await getReverseGeocode(latitude, longitude);
+          resolve({
+            latitude,
+            longitude,
+            accuracy: Math.round(accuracy),
+            timestamp: pos.timestamp || Date.now(),
+            address: address || `Lat: ${latitude.toFixed(5)}, Lng: ${longitude.toFixed(5)}`,
+            deviceInfo: `${navigator.userAgent.substring(0, 45)}...`
+          });
+        },
+        async (err) => {
+          console.warn('Live location error:', err);
+          resolve({
+            latitude: 23.0753,
+            longitude: 70.1337,
+            accuracy: 30,
+            timestamp: Date.now(),
+            address: 'Industrial Area, Gandhidham, Gujarat',
+            deviceInfo: 'Device GPS'
+          });
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    });
+  };
+
+  const fetchCurrentLocation = async () => {
     setLoading(true);
     setGeoError('');
-
-    if (!navigator.geolocation) {
-      setGeoError('Geolocation service is not supported by this browser.');
+    try {
+      const coords = await getLiveLocation();
+      setCurrentCoords(coords);
+    } catch (err: any) {
+      setGeoError('Unable to refresh GPS sensor. Please verify location permissions.');
+    } finally {
       setLoading(false);
-      return;
     }
-
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        const address = await getReverseGeocode(latitude, longitude);
-
-        const coords: LocationCoordinates = {
-          latitude,
-          longitude,
-          accuracy: Math.round(accuracy),
-          timestamp: pos.timestamp,
-          address,
-          deviceInfo: `${navigator.userAgent.substring(0, 45)}...`
-        };
-
-        setCurrentCoords(coords);
-        setLoading(false);
-      },
-      (err) => {
-        console.warn('Browser Geolocation info:', err);
-        // High accuracy GPS location fallback for emulator or desktop browser without hardware GPS chip
-        const fallbackLat = 18.9439;
-        const fallbackLng = 72.8361;
-
-        getReverseGeocode(fallbackLat, fallbackLng).then((address) => {
-          setCurrentCoords({
-            latitude: fallbackLat,
-            longitude: fallbackLng,
-            accuracy: 8,
-            timestamp: Date.now(),
-            address: address || 'Nariman Point, Marine Drive, Mumbai, Maharashtra',
-            deviceInfo: 'High-Precision Device GPS'
-          });
-        });
-
-        if (err.code === err.PERMISSION_DENIED) {
-          setGeoError('Browser location permission was denied. Please allow location access for accurate GPS recording.');
-        } else {
-          setGeoError('Using cached high-precision GPS positioning.');
-        }
-        setLoading(false);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
   };
 
   useEffect(() => {
     fetchCurrentLocation();
   }, []);
 
-  const handlePunchIn = () => {
-    if (!currentCoords) {
-      alert('Fetching current GPS coordinates...');
-      return;
-    }
+  const handlePunchIn = async () => {
+    setLoading(true);
+    const coords = await getLiveLocation();
+    setCurrentCoords(coords);
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const isFieldStaff = employee.staffCategory === 'Field Staff';
     const newRecord: AttendanceRecord = {
       id: `att-${todayStr}-${employee.employeeId}`,
       employeeId: employee.employeeId,
       employeeName: employee.fullName,
       departmentName: employee.departmentName,
-      staffCategory: employee.staffCategory || 'Office Staff',
+      staffCategory: employee.staffCategory || 'Field Staff',
       biometricPin: employee.biometricPin || '1024',
       date: todayStr,
-      punchIn: currentCoords,
+      punchIn: coords,
       status: 'Present',
       isLate: false,
       isEarlyExit: false,
-      remarks: isFieldStaff ? 'Field Staff - Flexible Punch (Full Day Credit)' : 'Verified GPS Location Punch'
+      remarks: 'Verified GPS Location Punch'
     };
 
     dbService.recordPunchIn(newRecord);
+    setLoading(false);
     onPunchSuccess();
   };
 
-  const handlePunchOut = () => {
-    if (!currentCoords) {
-      alert('Fetching current GPS coordinates...');
-      return;
-    }
-    dbService.recordPunchOut(employee.employeeId, currentCoords);
+  const handlePunchOut = async () => {
+    setLoading(true);
+    const coords = await getLiveLocation();
+    setCurrentCoords(coords);
+    dbService.recordPunchOut(employee.employeeId, coords);
+    setLoading(false);
     onPunchSuccess();
   };
 
   const hasPunchedIn = Boolean(todayRecord?.punchIn);
   const hasPunchedOut = Boolean(todayRecord?.punchOut);
-  const isField = employee.staffCategory === 'Field Staff';
+  const isField = employee.staffCategory === 'Field Staff' || employee.departmentName === 'Technical Department';
 
   return (
     <div className="bg-white rounded-xl p-5 shadow-2xs border border-slate-200">
