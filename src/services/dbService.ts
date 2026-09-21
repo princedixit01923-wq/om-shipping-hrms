@@ -59,6 +59,7 @@ class DatabaseService {
   constructor() {
     this.initSeedData();
     this.syncFromSupabase();
+    this.initRealtimeAndSyncListeners();
   }
 
   public subscribe(cb: EventCallback) {
@@ -73,15 +74,56 @@ class DatabaseService {
   }
 
   /**
+   * Set up real-time websocket and focus event listeners to keep laptop & phone 100% in sync
+   */
+  private initRealtimeAndSyncListeners() {
+    // 1. Supabase Postgres Realtime Changes
+    try {
+      supabase
+        .channel('public:realtime_hrms')
+        .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+          this.syncFromSupabase();
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Supabase Realtime not subscribed:', e);
+    }
+
+    // 2. Window Focus & Visibility Change (Crucial for mobile <-> laptop multi-device sync)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', () => {
+        this.syncFromSupabase();
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          this.syncFromSupabase();
+        }
+      });
+      // 3. Periodic Background Pulse every 10 seconds
+      setInterval(() => {
+        this.syncFromSupabase();
+      }, 10000);
+    }
+  }
+
+  /**
    * Background Supabase Cloud Real-time Fetch & Sync
    */
   public async syncFromSupabase() {
     try {
       // 1. Sync Employees from Supabase
       const { data: empData, error: empErr } = await supabase.from('employees').select('*');
-      if (!empErr && empData && empData.length > 0) {
-        this.setItem(STORAGE_KEYS.EMPLOYEES, empData);
-        this.isCloudConnected = true;
+      if (!empErr && empData) {
+        if (empData.length > 0) {
+          this.setItem(STORAGE_KEYS.EMPLOYEES, empData);
+          this.isCloudConnected = true;
+        } else {
+          // If remote table has 0 employees, seed with default employees
+          const initial = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES);
+          if (initial && initial.length > 0) {
+            this.pushToSupabase('employees', initial);
+          }
+        }
       }
 
       // 2. Sync Attendance Records from Supabase
@@ -92,8 +134,15 @@ class DatabaseService {
 
       // 3. Sync Shifts from Supabase
       const { data: shiftData, error: shiftErr } = await supabase.from('shifts').select('*');
-      if (!shiftErr && shiftData && shiftData.length > 0) {
-        this.setItem(STORAGE_KEYS.SHIFTS, shiftData);
+      if (!shiftErr && shiftData) {
+        if (shiftData.length > 0) {
+          this.setItem(STORAGE_KEYS.SHIFTS, shiftData);
+        } else {
+          const initialShifts = this.getItem<Shift[]>(STORAGE_KEYS.SHIFTS, INITIAL_SHIFTS);
+          if (initialShifts && initialShifts.length > 0) {
+            this.pushToSupabase('shifts', initialShifts);
+          }
+        }
       }
 
       // 4. Sync Leave Requests from Supabase
@@ -110,11 +159,34 @@ class DatabaseService {
 
       // 6. Sync Holidays from Supabase
       const { data: holData, error: holErr } = await supabase.from('holidays').select('*');
-      if (!holErr && holData && holData.length > 0) {
-        this.setItem(STORAGE_KEYS.HOLIDAYS, holData);
+      if (!holErr && holData) {
+        if (holData.length > 0) {
+          this.setItem(STORAGE_KEYS.HOLIDAYS, holData);
+        } else {
+          const initialHolidays = this.getItem<Holiday[]>(STORAGE_KEYS.HOLIDAYS, INITIAL_HOLIDAYS);
+          if (initialHolidays && initialHolidays.length > 0) {
+            this.pushToSupabase('holidays', initialHolidays);
+          }
+        }
+      }
+
+      // 7. Sync Company Settings from Supabase
+      const { data: settingsData, error: settingsErr } = await supabase.from('company_settings').select('*').limit(1);
+      if (!settingsErr && settingsData && settingsData.length > 0) {
+        const setRow = settingsData[0];
+        const current = this.getSettings();
+        this.setItem(STORAGE_KEYS.SETTINGS, {
+          ...current,
+          companyName: setRow.companyName || current.companyName,
+          tagline: setRow.tagline || current.tagline,
+          address: setRow.address || current.address,
+          phone: setRow.phone || current.phone,
+          email: setRow.email || current.email,
+          website: setRow.website || current.website
+        });
       }
     } catch (err) {
-      console.warn('Supabase initial fetch sync notice:', err);
+      console.warn('Supabase sync notice:', err);
     }
   }
 
@@ -295,6 +367,22 @@ class DatabaseService {
 
   public updateSettings(settings: CompanySettings) {
     this.setItem(STORAGE_KEYS.SETTINGS, settings);
+    this.pushToSupabase('company_settings', {
+      id: 1,
+      companyName: settings.companyName,
+      tagline: settings.tagline,
+      logoUrl: settings.logoUrl,
+      address: settings.address,
+      phone: settings.phone,
+      email: settings.email,
+      website: settings.website,
+      workingDaysPerMonth: settings.workingDaysPerMonth,
+      currencySymbol: settings.currencySymbol,
+      requireLocationForPunch: settings.requireLocationForPunch,
+      gracePeriodMinutes: settings.gracePeriodMinutes,
+      lateMarkAfterMinutes: settings.lateMarkAfterMinutes,
+      auditLoggingEnabled: settings.auditLoggingEnabled
+    });
     const user = this.getCurrentUser();
     this.addAuditLog(user?.name || 'HR Administrator', user?.role || 'HR Administrator', 'Updated Settings', 'Settings', 'Updated company system settings');
   }

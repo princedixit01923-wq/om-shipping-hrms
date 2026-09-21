@@ -1,38 +1,33 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const DEFAULT_SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) || 'https://nyhcyxpymyaifqyieslt.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzIsInJlZiI6Im55aHljeHB5bXlhaWZxeWllc2x0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4MjYxNzQsImV4cCI6MjEwNTQwMjE3NH0._-t1QZbeVuzYRsYsq6jTsmgEFH5pALQ1Hf3IZFldqRY';
+// Dedicated Supabase Cloud credentials for OM Safety Services LLP
+export const SUPABASE_URL =
+  (import.meta.env.VITE_SUPABASE_URL as string) || 'https://nyhycxpymyaifqyieslt.supabase.co';
 
-export function getActiveSupabaseConfig() {
-  const customUrl = localStorage.getItem('OM_SUPABASE_URL');
-  const customKey = localStorage.getItem('OM_SUPABASE_ANON_KEY');
-  return {
-    url: customUrl?.trim() || DEFAULT_SUPABASE_URL,
-    anonKey: customKey?.trim() || DEFAULT_SUPABASE_ANON_KEY,
-    isCustom: Boolean(customUrl || customKey)
-  };
-}
+export const SUPABASE_ANON_KEY =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || 'sb_publishable_mSAIUrS5iXT3LvkjslYcMg_frVcTjb-';
 
-export function saveSupabaseConfig(url: string, anonKey: string) {
-  if (url) localStorage.setItem('OM_SUPABASE_URL', url.trim());
-  else localStorage.removeItem('OM_SUPABASE_URL');
+// Single reliable production client instance
+export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10
+    }
+  }
+});
 
-  if (anonKey) localStorage.setItem('OM_SUPABASE_ANON_KEY', anonKey.trim());
-  else localStorage.removeItem('OM_SUPABASE_ANON_KEY');
-
-  // Re-create client instance
-  const config = getActiveSupabaseConfig();
-  supabase = createClient(config.url, config.anonKey);
-}
-
-const initialConfig = getActiveSupabaseConfig();
-export let supabase: SupabaseClient = createClient(initialConfig.url, initialConfig.anonKey);
-
+/**
+ * Health check helper to test active connectivity with the remote database
+ */
 export async function checkSupabaseHealth(): Promise<{ connected: boolean; message: string }> {
   try {
     const res = await supabase.from('employees').select('count', { count: 'exact', head: true });
     if (res.error) {
-      return { connected: false, message: res.error.message || 'Supabase connection error' };
+      return { connected: false, message: res.error.message || 'Database connection error' };
     }
     return { connected: true, message: 'Supabase Cloud Connected & Synchronized' };
   } catch (err: any) {
