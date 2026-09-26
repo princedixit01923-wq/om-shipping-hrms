@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, CheckCircle, XCircle, MessageSquare } from 'lucide-react';
+import { FileText, CheckCircle, XCircle, MessageSquare, Search } from 'lucide-react';
 import { LeaveRequest } from '../../types';
 import { dbService } from '../../services/dbService';
 import { Badge } from '../common/Badge';
@@ -7,6 +7,7 @@ import { Badge } from '../common/Badge';
 export const LeaveApprovals: React.FC = () => {
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [selectedFilter, setSelectedFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('Pending');
+  const [searchQuery, setSearchQuery] = useState('');
   const [commentModalReq, setCommentModalReq] = useState<LeaveRequest | null>(null);
   const [actionType, setActionType] = useState<'Approved' | 'Rejected'>('Approved');
   const [hrComment, setHrComment] = useState('');
@@ -21,7 +22,25 @@ export const LeaveApprovals: React.FC = () => {
     return () => unsub();
   }, []);
 
-  const filteredLeaves = leaves.filter((l) => (selectedFilter === 'All' ? true : l.status === selectedFilter));
+  const pendingCount = leaves.filter((l) => l.status === 'Pending').length;
+
+  // Sort newest first
+  const sortedLeaves = [...leaves].sort((a, b) => {
+    const tA = new Date(a.createdAt || a.fromDate).getTime();
+    const tB = new Date(b.createdAt || b.fromDate).getTime();
+    return tB - tA;
+  });
+
+  const filteredLeaves = sortedLeaves.filter((l) => {
+    const matchesFilter = selectedFilter === 'All' ? true : l.status === selectedFilter;
+    const matchesSearch =
+      l.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      l.employeeId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      l.departmentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      l.leaveType.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      l.reason.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
 
   const handleOpenActionModal = (req: LeaveRequest, action: 'Approved' | 'Rejected') => {
     setCommentModalReq(req);
@@ -32,7 +51,7 @@ export const LeaveApprovals: React.FC = () => {
   const handleConfirmAction = (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentModalReq) return;
-    dbService.updateLeaveStatus(commentModalReq.id, actionType, hrComment, 'Meera Sharma (HR Lead)');
+    dbService.updateLeaveStatus(commentModalReq.id, actionType, hrComment, 'HR Administrator');
     setCommentModalReq(null);
   };
 
@@ -41,23 +60,42 @@ export const LeaveApprovals: React.FC = () => {
       <div className="bg-white p-6 rounded-2xl shadow-md border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-[#0f4c81]" /> Leave Request Approvals Management
+            <FileText className="w-5 h-5 text-[#0f4c81]" /> Leave Request Approvals
+            {pendingCount > 0 && (
+              <span className="px-2.5 py-0.5 text-xs font-black bg-rose-600 text-white rounded-full animate-pulse shadow-xs">
+                {pendingCount} Pending
+              </span>
+            )}
           </h1>
           <p className="text-xs text-slate-500 mt-1">Review leave applications, verify balances, and record HR comments</p>
         </div>
 
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-          {(['Pending', 'Approved', 'Rejected', 'All'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setSelectedFilter(tab)}
-              className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all ${
-                selectedFilter === tab ? 'bg-[#0f4c81] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          {/* Search Box */}
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search staff, leave type, reason..."
+              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0f4c81]"
+            />
+          </div>
+
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-full sm:w-auto justify-center">
+            {(['Pending', 'Approved', 'Rejected', 'All'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setSelectedFilter(tab)}
+                className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all ${
+                  selectedFilter === tab ? 'bg-[#0f4c81] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

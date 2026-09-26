@@ -18,7 +18,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess, settings }
   const [resetEmail, setResetEmail] = useState('');
   const [resetSuccess, setResetSuccess] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  React.useEffect(() => {
+    dbService.syncFromSupabase();
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -27,7 +31,13 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess, settings }
       return;
     }
 
-    const authenticatedUser = dbService.authenticate(emailOrEmpId, password);
+    let authenticatedUser = dbService.authenticate(emailOrEmpId, password);
+
+    // If not found in local cache immediately, force cloud sync retry
+    if (!authenticatedUser) {
+      await dbService.syncFromSupabase();
+      authenticatedUser = dbService.authenticate(emailOrEmpId, password);
+    }
 
     if (!authenticatedUser) {
       setErrorMsg('Invalid login credentials. Please check your identifier and password.');

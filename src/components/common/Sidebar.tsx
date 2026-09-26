@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   MapPin,
@@ -17,6 +18,7 @@ import {
   X
 } from 'lucide-react';
 import { UserRole } from '../../types';
+import { dbService } from '../../services/dbService';
 
 interface SidebarProps {
   activeTab: string;
@@ -34,6 +36,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile
 }) => {
   const isHR = userRole === 'HR Administrator';
+  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
+  const [pendingCorrectionCount, setPendingCorrectionCount] = useState(0);
+
+  const reloadCounts = () => {
+    if (isHR) {
+      const leaves = dbService.getLeaveRequests().filter((l) => l.status === 'Pending').length;
+      const corrections = dbService.getTimeCorrections().filter((c) => c.status === 'Pending').length;
+      setPendingLeaveCount(leaves);
+      setPendingCorrectionCount(corrections);
+    }
+  };
+
+  useEffect(() => {
+    reloadCounts();
+    const unsub = dbService.subscribe(reloadCounts);
+    return () => unsub();
+  }, [isHR]);
 
   const employeeNav = [
     { id: 'emp-dashboard', label: 'Dashboard & GPS Punch', icon: LayoutDashboard },
@@ -51,8 +70,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'hr-map', label: 'Live Location Map', icon: MapPin },
     { id: 'hr-attendance', label: 'Attendance Management', icon: CalendarCheck },
     { id: 'hr-reports', label: 'Attendance Reports (Matrix)', icon: BarChart3 },
-    { id: 'hr-leaves', label: 'Leave Approvals', icon: FileText },
-    { id: 'hr-corrections', label: 'Time Correction Approvals', icon: Clock },
+    { id: 'hr-leaves', label: 'Leave Approvals', icon: FileText, badge: pendingLeaveCount },
+    { id: 'hr-corrections', label: 'Time Correction Approvals', icon: Clock, badge: pendingCorrectionCount },
     { id: 'hr-employees', label: 'Employee Directory', icon: Users },
     { id: 'hr-payroll', label: 'Payroll & Payslips', icon: DollarSign },
     { id: 'hr-holidays', label: 'Holiday Calendar', icon: CalendarDays },
@@ -108,6 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {currentNav.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
+              const badgeCount = (item as any).badge;
               return (
                 <button
                   key={item.id}
@@ -115,25 +135,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onTabChange(item.id);
                     onCloseMobile();
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${
                     isActive
                       ? 'bg-[#2563eb] text-white shadow-xs font-semibold'
                       : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                  <span className="truncate">{item.label}</span>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                  {badgeCount !== undefined && badgeCount > 0 && (
+                    <span className="ml-2 px-2 py-0.5 text-[10px] font-black bg-rose-600 text-white rounded-full animate-pulse shadow-xs">
+                      {badgeCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
 
           {/* Footer Branding */}
-          <div className="p-3.5 border-t border-slate-800 bg-[#090d16] text-center shrink-0">
-            <span className="text-xs font-bold text-white tracking-tight block">
-              OM Shipping Ltd.
-            </span>
-            <span className="text-[10px] font-normal text-sky-400 uppercase tracking-widest block mt-0.5">
+          <div className="p-4 border-t border-slate-800/80 bg-[#090d16] text-center shrink-0">
+            <span className="text-xs font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-sky-300 to-cyan-400 uppercase block">
               HRMS By Priva
             </span>
           </div>

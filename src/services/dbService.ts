@@ -99,78 +99,183 @@ class DatabaseService {
           this.syncFromSupabase();
         }
       });
-      // 3. Periodic Background Pulse every 10 seconds
+      // 3. Periodic Background Pulse every 3 seconds for instant cross-device sync
       setInterval(() => {
         this.syncFromSupabase();
-      }, 10000);
+      }, 3000);
     }
   }
 
   /**
-   * Background Supabase Cloud Real-time Fetch & Sync
+   * Background Supabase Cloud Real-time Fetch & Bi-directional Sync for All Entities
    */
   public async syncFromSupabase() {
     try {
-      // 1. Sync Employees from Supabase
-      const { data: empData, error: empErr } = await supabase.from('employees').select('*');
-      if (!empErr && empData) {
-        if (empData.length > 0) {
-          this.setItem(STORAGE_KEYS.EMPLOYEES, empData);
-          this.isCloudConnected = true;
-        } else {
-          // If remote table has 0 employees, seed with default employees
-          const initial = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES);
-          if (initial && initial.length > 0) {
-            this.pushToSupabase('employees', initial);
-          }
+      // 1. Sync Shifts FIRST (prevents Foreign Key violation on employees table)
+      const { data: shiftData, error: shiftErr } = await supabase.from('shifts').select('*');
+      if (!shiftErr && shiftData) {
+        const localShifts = this.getItem<Shift[]>(STORAGE_KEYS.SHIFTS, INITIAL_SHIFTS);
+        const shiftMap = new Map<string, Shift>();
+        localShifts.forEach((s) => shiftMap.set(s.id, s));
+        shiftData.forEach((s: Shift) => shiftMap.set(s.id, s));
+        const mergedShifts = Array.from(shiftMap.values());
+        this.setItem(STORAGE_KEYS.SHIFTS, mergedShifts);
+
+        const remoteShiftIds = new Set(shiftData.map((s: any) => s.id));
+        const missingShifts = localShifts.filter((s) => !remoteShiftIds.has(s.id));
+        if (missingShifts.length > 0) {
+          await this.pushToSupabase('shifts', missingShifts);
         }
       }
 
-      // 2. Sync Attendance Records from Supabase
-      const { data: attData, error: attErr } = await supabase.from('attendance_records').select('*');
-      if (!attErr && attData && attData.length > 0) {
-        this.setItem(STORAGE_KEYS.ATTENDANCE, attData);
+      // 2. Sync Employees from Supabase with bi-directional merge
+      const { data: empData, error: empErr } = await supabase.from('employees').select('*');
+      if (!empErr && empData) {
+        this.isCloudConnected = true;
+        const localEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES);
+
+        const remoteEmpIds = new Set(empData.map((e: any) => e.id));
+        const remoteEmpCodes = new Set(empData.map((e: any) => e.employeeId));
+
+        const empMap = new Map<string, Employee>();
+        localEmps.forEach((e) => empMap.set(e.id || e.employeeId, e));
+        empData.forEach((e: Employee) => empMap.set(e.id || e.employeeId, e));
+
+        const mergedEmps = Array.from(empMap.values());
+        this.setItem(STORAGE_KEYS.EMPLOYEES, mergedEmps);
+
+        // Find local employees missing in Supabase and push them immediately
+        const missingEmps = localEmps.filter(
+          (e) => !remoteEmpIds.has(e.id) && !remoteEmpCodes.has(e.employeeId)
+        );
+        if (missingEmps.length > 0) {
+          await this.pushToSupabase('employees', missingEmps);
+        }
       }
 
-      // 3. Sync Shifts from Supabase
-      const { data: shiftData, error: shiftErr } = await supabase.from('shifts').select('*');
-      if (!shiftErr && shiftData) {
-        if (shiftData.length > 0) {
-          this.setItem(STORAGE_KEYS.SHIFTS, shiftData);
-        } else {
-          const initialShifts = this.getItem<Shift[]>(STORAGE_KEYS.SHIFTS, INITIAL_SHIFTS);
-          if (initialShifts && initialShifts.length > 0) {
-            this.pushToSupabase('shifts', initialShifts);
-          }
+      // 3. Sync Attendance Records from Supabase
+      const { data: attData, error: attErr } = await supabase.from('attendance_records').select('*');
+      if (!attErr && attData) {
+        const localAtt = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
+        const attMap = new Map<string, AttendanceRecord>();
+        localAtt.forEach((a) => attMap.set(a.id || `${a.employeeId}-${a.date}`, a));
+        attData.forEach((a: AttendanceRecord) => attMap.set(a.id || `${a.employeeId}-${a.date}`, a));
+        this.setItem(STORAGE_KEYS.ATTENDANCE, Array.from(attMap.values()));
+
+        const remoteAttIds = new Set(attData.map((a: any) => a.id));
+        const missingAtt = localAtt.filter((a) => a.id && !remoteAttIds.has(a.id));
+        if (missingAtt.length > 0) {
+          await this.pushToSupabase('attendance_records', missingAtt);
         }
       }
 
       // 4. Sync Leave Requests from Supabase
       const { data: leaveData, error: leaveErr } = await supabase.from('leave_requests').select('*');
-      if (!leaveErr && leaveData && leaveData.length > 0) {
-        this.setItem(STORAGE_KEYS.LEAVES, leaveData);
+      if (!leaveErr && leaveData) {
+        const localLeaves = this.getItem<LeaveRequest[]>(STORAGE_KEYS.LEAVES, INITIAL_LEAVE_REQUESTS);
+        const leaveMap = new Map<string, LeaveRequest>();
+        localLeaves.forEach((l) => leaveMap.set(l.id, l));
+        leaveData.forEach((l: LeaveRequest) => leaveMap.set(l.id, l));
+        this.setItem(STORAGE_KEYS.LEAVES, Array.from(leaveMap.values()));
+
+        const remoteLeaveIds = new Set(leaveData.map((l: any) => l.id));
+        const missingLeaves = localLeaves.filter((l) => !remoteLeaveIds.has(l.id));
+        if (missingLeaves.length > 0) {
+          await this.pushToSupabase('leave_requests', missingLeaves);
+        }
       }
 
-      // 5. Sync Announcements from Supabase
-      const { data: ancData, error: ancErr } = await supabase.from('announcements').select('*');
-      if (!ancErr && ancData && ancData.length > 0) {
-        this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, ancData);
+      // 5. Sync Time Correction Requests
+      const { data: corrData, error: corrErr } = await supabase.from('time_corrections').select('*');
+      if (!corrErr && corrData) {
+        const localCorr = this.getItem<TimeCorrectionRequest[]>(STORAGE_KEYS.CORRECTIONS, INITIAL_TIME_CORRECTIONS);
+        const corrMap = new Map<string, TimeCorrectionRequest>();
+        localCorr.forEach((c) => corrMap.set(c.id, c));
+        corrData.forEach((c: TimeCorrectionRequest) => corrMap.set(c.id, c));
+        this.setItem(STORAGE_KEYS.CORRECTIONS, Array.from(corrMap.values()));
+
+        const remoteCorrIds = new Set(corrData.map((c: any) => c.id));
+        const missingCorr = localCorr.filter((c) => !remoteCorrIds.has(c.id));
+        if (missingCorr.length > 0) {
+          await this.pushToSupabase('time_corrections', missingCorr);
+        }
       }
 
       // 6. Sync Holidays from Supabase
       const { data: holData, error: holErr } = await supabase.from('holidays').select('*');
       if (!holErr && holData) {
-        if (holData.length > 0) {
-          this.setItem(STORAGE_KEYS.HOLIDAYS, holData);
-        } else {
-          const initialHolidays = this.getItem<Holiday[]>(STORAGE_KEYS.HOLIDAYS, INITIAL_HOLIDAYS);
-          if (initialHolidays && initialHolidays.length > 0) {
-            this.pushToSupabase('holidays', initialHolidays);
-          }
+        const localHol = this.getItem<Holiday[]>(STORAGE_KEYS.HOLIDAYS, INITIAL_HOLIDAYS);
+        const holMap = new Map<string, Holiday>();
+        localHol.forEach((h) => holMap.set(h.id, h));
+        holData.forEach((h: Holiday) => holMap.set(h.id, h));
+        this.setItem(STORAGE_KEYS.HOLIDAYS, Array.from(holMap.values()));
+
+        const remoteHolIds = new Set(holData.map((h: any) => h.id));
+        const missingHol = localHol.filter((h) => !remoteHolIds.has(h.id));
+        if (missingHol.length > 0) {
+          await this.pushToSupabase('holidays', missingHol);
         }
       }
 
-      // 7. Sync Company Settings from Supabase
+      // 7. Sync Announcements from Supabase
+      const { data: ancData, error: ancErr } = await supabase.from('announcements').select('*');
+      if (!ancErr && ancData) {
+        const localAnc = this.getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS);
+        const ancMap = new Map<string, Announcement>();
+        localAnc.forEach((a) => ancMap.set(a.id, a));
+        ancData.forEach((a: Announcement) => ancMap.set(a.id, a));
+        this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, Array.from(ancMap.values()));
+
+        const remoteAncIds = new Set(ancData.map((a: any) => a.id));
+        const missingAnc = localAnc.filter((a) => !remoteAncIds.has(a.id));
+        if (missingAnc.length > 0) {
+          await this.pushToSupabase('announcements', missingAnc);
+        }
+      }
+
+      // 8. Sync Payroll Runs
+      const { data: prData, error: prErr } = await supabase.from('payroll_runs').select('*');
+      if (!prErr && prData) {
+        const localPr = this.getItem<PayrollRun[]>(STORAGE_KEYS.PAYROLL_RUNS, INITIAL_PAYROLL_RUNS);
+        const prMap = new Map<string, PayrollRun>();
+        localPr.forEach((p) => prMap.set(p.id, p));
+        prData.forEach((p: PayrollRun) => prMap.set(p.id, p));
+        this.setItem(STORAGE_KEYS.PAYROLL_RUNS, Array.from(prMap.values()));
+
+        const remotePrIds = new Set(prData.map((p: any) => p.id));
+        const missingPr = localPr.filter((p) => !remotePrIds.has(p.id));
+        if (missingPr.length > 0) {
+          await this.pushToSupabase('payroll_runs', missingPr);
+        }
+      }
+
+      // 9. Sync Payslips
+      const { data: psData, error: psErr } = await supabase.from('payslips').select('*');
+      if (!psErr && psData) {
+        const localPs = this.getItem<Payslip[]>(STORAGE_KEYS.PAYSLIPS, INITIAL_PAYSLIPS);
+        const psMap = new Map<string, Payslip>();
+        localPs.forEach((p) => psMap.set(p.id, p));
+        psData.forEach((p: Payslip) => psMap.set(p.id, p));
+        this.setItem(STORAGE_KEYS.PAYSLIPS, Array.from(psMap.values()));
+
+        const remotePsIds = new Set(psData.map((p: any) => p.id));
+        const missingPs = localPs.filter((p) => !remotePsIds.has(p.id));
+        if (missingPs.length > 0) {
+          await this.pushToSupabase('payslips', missingPs);
+        }
+      }
+
+      // 10. Sync Audit Logs
+      const { data: auditData, error: auditErr } = await supabase.from('audit_logs').select('*').limit(100);
+      if (!auditErr && auditData) {
+        const localAud = this.getItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS);
+        const audMap = new Map<string, AuditLog>();
+        localAud.forEach((a) => audMap.set(a.id, a));
+        auditData.forEach((a: AuditLog) => audMap.set(a.id, a));
+        this.setItem(STORAGE_KEYS.AUDIT_LOGS, Array.from(audMap.values()));
+      }
+
+      // 11. Sync Company Settings from Supabase
       const { data: settingsData, error: settingsErr } = await supabase.from('company_settings').select('*').limit(1);
       if (!settingsErr && settingsData && settingsData.length > 0) {
         const setRow = settingsData[0];
@@ -191,13 +296,24 @@ class DatabaseService {
   }
 
   /**
-   * Helper to write to Supabase asynchronously without blocking UI execution
+   * Helper to write to Supabase asynchronously with FK constraint auto-recovery
    */
   private async pushToSupabase(tableName: string, payload: any) {
     try {
-      const { error } = Array.isArray(payload)
-        ? await supabase.from(tableName).upsert(payload)
-        : await supabase.from(tableName).upsert([payload]);
+      const items = Array.isArray(payload) ? payload : [payload];
+      let { error } = await supabase.from(tableName).upsert(items);
+
+      if (error && tableName === 'employees' && error.code === '23503') {
+        console.warn('Handling FK constraint fallback for employees upsert...');
+        const sanitizedItems = items.map((emp: any) => ({
+          ...emp,
+          shiftId: 'sh-1',
+          shiftName: emp.shiftName || 'Shift A (General Day)'
+        }));
+        const retryRes = await supabase.from(tableName).upsert(sanitizedItems);
+        error = retryRes.error;
+      }
+
       if (error) {
         console.warn(`Supabase upsert warning for ${tableName}:`, error.message);
       } else {
@@ -586,6 +702,7 @@ class DatabaseService {
     const list = this.getTimeCorrections();
     list.unshift(req);
     this.setItem(STORAGE_KEYS.CORRECTIONS, list);
+    this.pushToSupabase('time_corrections', req);
   }
 
   public updateTimeCorrectionStatus(id: string, status: 'Approved' | 'Rejected', comment: string, reviewerName: string) {
@@ -597,6 +714,7 @@ class DatabaseService {
       req.reviewedBy = reviewerName;
       req.reviewedAt = new Date().toISOString();
       this.setItem(STORAGE_KEYS.CORRECTIONS, list);
+      this.pushToSupabase('time_corrections', req);
 
       if (status === 'Approved') {
         const attList = this.getAttendanceRecords();
@@ -604,6 +722,7 @@ class DatabaseService {
         if (att) {
           att.remarks = `Corrected by HR (${comment || 'Approved'})`;
           this.setItem(STORAGE_KEYS.ATTENDANCE, attList);
+          this.pushToSupabase('attendance_records', att);
         }
       }
     }
@@ -752,6 +871,7 @@ class DatabaseService {
     });
 
     this.setItem(STORAGE_KEYS.PAYSLIPS, payslips);
+    this.pushToSupabase('payslips', payslips);
 
     const run: PayrollRun = {
       id: `prun-${monthYear}`,
@@ -768,6 +888,7 @@ class DatabaseService {
     const runs = this.getPayrollRuns();
     runs.unshift(run);
     this.setItem(STORAGE_KEYS.PAYROLL_RUNS, runs);
+    this.pushToSupabase('payroll_runs', run);
 
     this.addAuditLog(
       processedBy,
@@ -830,6 +951,7 @@ class DatabaseService {
     };
     logs.unshift(newLog);
     this.setItem(STORAGE_KEYS.AUDIT_LOGS, logs);
+    this.pushToSupabase('audit_logs', newLog);
   }
 }
 

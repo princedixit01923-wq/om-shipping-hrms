@@ -27,11 +27,15 @@ export async function generatePayslipPDF(payslip: Payslip, company: CompanySetti
     ? payslip.joiningDate.split('-').reverse().join('.')
     : '01.07.2026';
 
+  const logoSrc = company.logoUrl || '/assets/om_logo.jpg';
+
   container.innerHTML = `
     <div style="background: #ffffff; width: 100%; border-bottom: 2px solid #1e3a8a; padding-bottom: 8px;">
       <!-- Top Letterhead -->
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
         <div style="display: flex; align-items: center; gap: 12px;">
+          <!-- Official Company Logo Image -->
+          <img src="${logoSrc}" alt="OM Logo" style="height: 48px; width: auto; max-width: 120px; object-fit: contain; border-radius: 4px;" onError="this.style.display='none';" />
           <!-- OM Graphic Logo -->
           <div style="display: flex; align-items: center; gap: 8px;">
             <div style="font-size: 42px; font-weight: 900; color: #0055a5; line-height: 1; letter-spacing: -2px;">OM</div>

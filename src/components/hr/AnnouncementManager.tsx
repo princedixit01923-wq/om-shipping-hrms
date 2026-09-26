@@ -31,7 +31,7 @@ export const AnnouncementManager: React.FC = () => {
       description,
       priority,
       targetAudience: 'All Employees',
-      publishedBy: 'Meera Sharma (HR Lead)',
+      publishedBy: 'HR Administrator',
       publishedAt: new Date().toISOString()
     };
 

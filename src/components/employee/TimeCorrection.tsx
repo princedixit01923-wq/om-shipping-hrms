@@ -13,12 +13,15 @@ export const TimeCorrection: React.FC<TimeCorrectionProps> = ({ employee }) => {
   const [showModal, setShowModal] = useState(false);
 
   const [date, setDate] = useState('');
+  const [correctionType, setCorrectionType] = useState<'Punch In Only' | 'Punch Out Only' | 'Both'>('Punch In Only');
   const [requestedPunchIn, setRequestedPunchIn] = useState('09:30');
   const [requestedPunchOut, setRequestedPunchOut] = useState('18:30');
   const [reason, setReason] = useState('');
 
   const reloadData = () => {
     const list = dbService.getTimeCorrections().filter((c) => c.employeeId === employee.employeeId);
+    // Sort newest first
+    list.sort((a, b) => new Date(b.createdAt || b.date).getTime() - new Date(a.createdAt || a.date).getTime());
     setCorrections(list);
   };
 
@@ -30,8 +33,20 @@ export const TimeCorrection: React.FC<TimeCorrectionProps> = ({ employee }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!date || !requestedPunchIn || !reason) {
+    if (!date || !reason) {
       alert('Please fill out all required fields.');
+      return;
+    }
+
+    const inVal = correctionType === 'Punch Out Only' ? '-' : (requestedPunchIn || '09:30');
+    const outVal = correctionType === 'Punch In Only' ? '-' : (requestedPunchOut || '18:30');
+
+    if (correctionType === 'Punch In Only' && !requestedPunchIn) {
+      alert('Please enter actual Punch In time.');
+      return;
+    }
+    if (correctionType === 'Punch Out Only' && !requestedPunchOut) {
+      alert('Please enter actual Punch Out time.');
       return;
     }
 
@@ -41,9 +56,9 @@ export const TimeCorrection: React.FC<TimeCorrectionProps> = ({ employee }) => {
       employeeName: employee.fullName,
       departmentName: employee.departmentName,
       date,
-      requestedPunchIn,
-      requestedPunchOut,
-      reason,
+      requestedPunchIn: inVal,
+      requestedPunchOut: outVal,
+      reason: `[${correctionType}] ${reason}`,
       status: 'Pending',
       createdAt: new Date().toISOString()
     };
@@ -59,7 +74,7 @@ export const TimeCorrection: React.FC<TimeCorrectionProps> = ({ employee }) => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-md border border-slate-200">
         <div>
           <h1 className="text-xl font-extrabold text-slate-900">Attendance Time Correction</h1>
-          <p className="text-xs text-slate-500 mt-1">Request manual punch correction for biometric or network machine errors</p>
+          <p className="text-xs text-slate-500 mt-1">Request manual punch correction for Punch In or Punch Out attendance errors</p>
         </div>
         <button
           onClick={() => setShowModal(true)}
@@ -97,8 +112,8 @@ export const TimeCorrection: React.FC<TimeCorrectionProps> = ({ employee }) => {
                   <tr key={c.id} className="hover:bg-slate-50">
                     <td className="p-3 text-slate-500">{new Date(c.createdAt).toLocaleDateString()}</td>
                     <td className="p-3 font-bold text-slate-900">{c.date}</td>
-                    <td className="p-3 text-emerald-700 font-bold">{c.requestedPunchIn}</td>
-                    <td className="p-3 text-blue-700 font-bold">{c.requestedPunchOut}</td>
+                    <td className="p-3 text-emerald-700 font-bold">{c.requestedPunchIn || '-'}</td>
+                    <td className="p-3 text-blue-700 font-bold">{c.requestedPunchOut || '-'}</td>
                     <td className="p-3 text-slate-600 max-w-xs truncate">{c.reason}</td>
                     <td className="p-3">
                       <div className="space-y-1">
@@ -118,11 +133,31 @@ export const TimeCorrection: React.FC<TimeCorrectionProps> = ({ employee }) => {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="max-w-md w-full bg-white rounded-2xl p-6 shadow-2xl border border-slate-200">
             <h3 className="text-base font-black text-slate-900 mb-1">Time Correction Request</h3>
-            <p className="text-xs text-slate-500 mb-4">Provide accurate punch details and justification</p>
+            <p className="text-xs text-slate-500 mb-4">Select whether you are correcting Punch In or Punch Out</p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Date of Attendance Failure</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Correction Type</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['Punch In Only', 'Punch Out Only', 'Both'] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setCorrectionType(type)}
+                      className={`py-2 px-1 text-[11px] font-bold rounded-xl border transition-all ${
+                        correctionType === type
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Date of Attendance</label>
                 <input
                   type="date"
                   required
@@ -133,26 +168,30 @@ export const TimeCorrection: React.FC<TimeCorrectionProps> = ({ employee }) => {
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Actual Punch In Time</label>
-                  <input
-                    type="time"
-                    required
-                    value={requestedPunchIn}
-                    onChange={(e) => setRequestedPunchIn(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0055a5]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Actual Punch Out Time</label>
-                  <input
-                    type="time"
-                    required
-                    value={requestedPunchOut}
-                    onChange={(e) => setRequestedPunchOut(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0055a5]"
-                  />
-                </div>
+                {(correctionType === 'Punch In Only' || correctionType === 'Both') && (
+                  <div className={correctionType === 'Punch In Only' ? 'col-span-2' : ''}>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Actual Punch In Time</label>
+                    <input
+                      type="time"
+                      required
+                      value={requestedPunchIn}
+                      onChange={(e) => setRequestedPunchIn(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0055a5]"
+                    />
+                  </div>
+                )}
+                {(correctionType === 'Punch Out Only' || correctionType === 'Both') && (
+                  <div className={correctionType === 'Punch Out Only' ? 'col-span-2' : ''}>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Actual Punch Out Time</label>
+                    <input
+                      type="time"
+                      required
+                      value={requestedPunchOut}
+                      onChange={(e) => setRequestedPunchOut(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0055a5]"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -162,7 +201,7 @@ export const TimeCorrection: React.FC<TimeCorrectionProps> = ({ employee }) => {
                   rows={3}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="e.g. Biometric gate device failure or emergency dock dispatch..."
+                  placeholder="e.g. GPS network machine error or emergency duty..."
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0055a5]"
                 />
               </div>

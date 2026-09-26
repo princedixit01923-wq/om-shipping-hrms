@@ -62,11 +62,19 @@ export const HRDashboard: React.FC<HRDashboardProps> = ({ onNavigateTab, setting
   });
 
   const handleApproveLeave = (id: string) => {
-    dbService.updateLeaveStatus(id, 'Approved', 'Quick dashboard approval', 'HR Admin');
+    dbService.updateLeaveStatus(id, 'Approved', 'Quick dashboard approval', 'HR Administrator');
   };
 
   const handleRejectLeave = (id: string) => {
-    dbService.updateLeaveStatus(id, 'Rejected', 'Rejected via HR dashboard', 'HR Admin');
+    dbService.updateLeaveStatus(id, 'Rejected', 'Rejected via HR dashboard', 'HR Administrator');
+  };
+
+  const handleApproveCorrection = (id: string) => {
+    dbService.updateTimeCorrectionStatus(id, 'Approved', 'Quick dashboard approval', 'HR Administrator');
+  };
+
+  const handleRejectCorrection = (id: string) => {
+    dbService.updateTimeCorrectionStatus(id, 'Rejected', 'Rejected via HR dashboard', 'HR Administrator');
   };
 
   return (
@@ -305,52 +313,103 @@ export const HRDashboard: React.FC<HRDashboardProps> = ({ onNavigateTab, setting
         </div>
       </div>
 
-      {/* Pending Approvals Action Queue */}
-      <div className="bg-white rounded-2xl p-5 shadow-2xs border border-slate-200">
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600" /> Pending Leave Approvals Queue
-          </h3>
-          <button
-            onClick={() => onNavigateTab('hr-leaves')}
-            className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
-          >
-            View All Leaves
-          </button>
+      {/* Pending Approvals Action Queue Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Pending Leaves */}
+        <div className="bg-white rounded-2xl p-5 shadow-2xs border border-slate-200">
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600" /> Pending Leave Approvals ({pendingLeaves.length})
+            </h3>
+            <button
+              onClick={() => onNavigateTab('hr-leaves')}
+              className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+            >
+              View All Leaves
+            </button>
+          </div>
+
+          {pendingLeaves.length === 0 ? (
+            <p className="text-xs text-slate-500 py-4 text-center">No pending leave requests requiring approval.</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {pendingLeaves.map((l) => (
+                <div key={l.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="font-bold text-xs text-slate-900">{l.employeeName} ({l.departmentName})</span>
+                    <span className="text-xs text-slate-600 block mt-0.5">
+                      <strong>{l.leaveType}</strong> from {l.fromDate} to {l.toDate} ({l.totalDays} Days)
+                    </span>
+                    <p className="text-[11px] text-slate-500 italic mt-0.5">&quot;{l.reason}&quot;</p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleApproveLeave(l.id)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => handleRejectLeave(l.id)}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {pendingLeaves.length === 0 ? (
-          <p className="text-xs text-slate-500 py-4 text-center">No pending leave requests requiring approval.</p>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {pendingLeaves.map((l) => (
-              <div key={l.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <span className="font-bold text-xs text-slate-900">{l.employeeName} ({l.departmentName})</span>
-                  <span className="text-xs text-slate-600 block mt-0.5">
-                    <strong>{l.leaveType}</strong> from {l.fromDate} to {l.toDate} ({l.totalDays} Days)
-                  </span>
-                  <p className="text-[11px] text-slate-500 italic mt-0.5">&quot;{l.reason}&quot;</p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleApproveLeave(l.id)}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => handleRejectLeave(l.id)}
-                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))}
+        {/* Pending Time Corrections */}
+        <div className="bg-white rounded-2xl p-5 shadow-2xs border border-slate-200">
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Clock className="w-4 h-4 text-blue-600" /> Pending Time Corrections ({pendingCorrections.length})
+            </h3>
+            <button
+              onClick={() => onNavigateTab('hr-corrections')}
+              className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+            >
+              View All Corrections
+            </button>
           </div>
-        )}
+
+          {pendingCorrections.length === 0 ? (
+            <p className="text-xs text-slate-500 py-4 text-center">No pending time correction requests requiring approval.</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {pendingCorrections.map((c) => (
+                <div key={c.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="font-bold text-xs text-slate-900">{c.employeeName} ({c.departmentName})</span>
+                    <span className="text-xs text-slate-600 block mt-0.5">
+                      Target Date: <strong>{c.date}</strong> | In: <strong className="text-emerald-700">{c.requestedPunchIn || '-'}</strong> | Out: <strong className="text-blue-700">{c.requestedPunchOut || '-'}</strong>
+                    </span>
+                    <p className="text-[11px] text-slate-500 italic mt-0.5">&quot;{c.reason}&quot;</p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleApproveCorrection(c.id)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => handleRejectCorrection(c.id)}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

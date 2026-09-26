@@ -58,6 +58,28 @@ export const INITIAL_SHIFTS: Shift[] = [
     isOvernight: false
   },
   {
+    id: 'sh-2',
+    name: 'Technical Field Shift (Flexible Anytime)',
+    startTime: '00:00',
+    endTime: '23:59',
+    gracePeriodMins: 0,
+    breakDurationMins: 60,
+    workingHours: 8.5,
+    weeklyOff: ['Sunday'],
+    isOvernight: false
+  },
+  {
+    id: 'sh-3',
+    name: 'Night Shift',
+    startTime: '00:00',
+    endTime: '08:30',
+    gracePeriodMins: 15,
+    breakDurationMins: 60,
+    workingHours: 8.5,
+    weeklyOff: ['Sunday'],
+    isOvernight: true
+  },
+  {
     id: 'sh-tech-flex',
     name: 'Technical Department Shift (Flexible / Anytime Punch)',
     startTime: '00:00',

@@ -30,14 +30,30 @@ export const PayrollProcessor: React.FC<PayrollProcessorProps> = ({ settings }) 
   const handleRunPayroll = () => {
     setIsProcessing(true);
     setTimeout(() => {
-      dbService.generateMonthlyPayroll(selectedMonthYear, 'Meera Sharma (HR Lead)');
+      dbService.generateMonthlyPayroll(selectedMonthYear, 'HR Administrator');
       setIsProcessing(false);
       alert(`Payroll successfully generated and finalized for ${selectedMonthYear}!`);
     }, 1200);
   };
 
+  const [isGeneratingPDFs, setIsGeneratingPDFs] = useState(false);
+
   const handleDownloadSinglePDF = async (p: Payslip) => {
     await generatePayslipPDF(p, settings);
+  };
+
+  const handleDownloadAllPDFs = async () => {
+    if (payslips.length === 0) {
+      alert('No payslips generated for this period yet. Please click "Execute Payroll Batch" first.');
+      return;
+    }
+    setIsGeneratingPDFs(true);
+    for (let i = 0; i < payslips.length; i++) {
+      await generatePayslipPDF(payslips[i], settings);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    setIsGeneratingPDFs(false);
+    alert(`Successfully generated official PDF salary slips for all ${payslips.length} employees!`);
   };
 
   const handleExportPayrollExcel = () => {
@@ -55,7 +71,7 @@ export const PayrollProcessor: React.FC<PayrollProcessorProps> = ({ settings }) 
           <p className="text-xs text-slate-500 mt-1">Batch process monthly salaries, earnings breakdown, statutory tax deductions & PDF generation</p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <input
             type="month"
             value={selectedMonthYear}
@@ -70,6 +86,15 @@ export const PayrollProcessor: React.FC<PayrollProcessorProps> = ({ settings }) 
           >
             <Play className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} />
             <span>{isProcessing ? 'Processing Payroll...' : 'Execute Payroll Batch'}</span>
+          </button>
+
+          <button
+            onClick={handleDownloadAllPDFs}
+            disabled={isGeneratingPDFs || payslips.length === 0}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold rounded-xl shadow-md transition-all border border-blue-700 disabled:opacity-50"
+          >
+            <Printer className={`w-4 h-4 ${isGeneratingPDFs ? 'animate-bounce' : ''}`} />
+            <span>{isGeneratingPDFs ? 'Generating All PDFs...' : 'Download All PDF Payslips'}</span>
           </button>
         </div>
       </div>
