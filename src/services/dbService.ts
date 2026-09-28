@@ -47,7 +47,8 @@ const STORAGE_KEYS = {
   PAYROLL_RUNS: 'om_hrms_payroll_runs',
   ANNOUNCEMENTS: 'om_hrms_announcements',
   AUDIT_LOGS: 'om_hrms_audit_logs',
-  SESSION_USER: 'om_hrms_session_user'
+  SESSION_USER: 'om_hrms_session_user',
+  DELETED_IDS: 'om_hrms_deleted_ids'
 };
 
 type EventCallback = () => void;
@@ -111,18 +112,29 @@ class DatabaseService {
    */
   public async syncFromSupabase() {
     try {
+      const deletedIds = this.getDeletedIds();
+
       // 1. Sync Shifts FIRST (prevents Foreign Key violation on employees table)
       const { data: shiftData, error: shiftErr } = await supabase.from('shifts').select('*');
       if (!shiftErr && shiftData) {
+        const validShiftData = shiftData.filter((s: Shift) => !deletedIds.has(s.id));
+        shiftData.forEach((s: Shift) => {
+          if (deletedIds.has(s.id)) {
+            supabase.from('shifts').delete().eq('id', s.id).then();
+          }
+        });
+
         const localShifts = this.getItem<Shift[]>(STORAGE_KEYS.SHIFTS, INITIAL_SHIFTS);
         const shiftMap = new Map<string, Shift>();
-        localShifts.forEach((s) => shiftMap.set(s.id, s));
-        shiftData.forEach((s: Shift) => shiftMap.set(s.id, s));
+        localShifts.forEach((s) => {
+          if (!deletedIds.has(s.id)) shiftMap.set(s.id, s);
+        });
+        validShiftData.forEach((s: Shift) => shiftMap.set(s.id, s));
         const mergedShifts = Array.from(shiftMap.values());
         this.setItem(STORAGE_KEYS.SHIFTS, mergedShifts);
 
-        const remoteShiftIds = new Set(shiftData.map((s: any) => s.id));
-        const missingShifts = localShifts.filter((s) => !remoteShiftIds.has(s.id));
+        const remoteShiftIds = new Set(validShiftData.map((s: any) => s.id));
+        const missingShifts = localShifts.filter((s) => !deletedIds.has(s.id) && !remoteShiftIds.has(s.id));
         if (missingShifts.length > 0) {
           await this.pushToSupabase('shifts', missingShifts);
         }
@@ -132,21 +144,36 @@ class DatabaseService {
       const { data: empData, error: empErr } = await supabase.from('employees').select('*');
       if (!empErr && empData) {
         this.isCloudConnected = true;
+        const validEmpData = empData.filter(
+          (e: Employee) => !deletedIds.has(e.id) && !deletedIds.has(e.employeeId) && (!e.biometricPin || !deletedIds.has(e.biometricPin))
+        );
+
+        empData.forEach((e: Employee) => {
+          if (deletedIds.has(e.id) || deletedIds.has(e.employeeId) || (e.biometricPin && deletedIds.has(e.biometricPin))) {
+            supabase.from('employees').delete().eq('id', e.id).then();
+            supabase.from('employees').delete().eq('employeeId', e.employeeId).then();
+          }
+        });
+
         const localEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES);
 
-        const remoteEmpIds = new Set(empData.map((e: any) => e.id));
-        const remoteEmpCodes = new Set(empData.map((e: any) => e.employeeId));
+        const remoteEmpIds = new Set(validEmpData.map((e: any) => e.id));
+        const remoteEmpCodes = new Set(validEmpData.map((e: any) => e.employeeId));
 
         const empMap = new Map<string, Employee>();
-        localEmps.forEach((e) => empMap.set(e.id || e.employeeId, e));
-        empData.forEach((e: Employee) => empMap.set(e.id || e.employeeId, e));
+        localEmps.forEach((e) => {
+          if (!deletedIds.has(e.id) && !deletedIds.has(e.employeeId) && (!e.biometricPin || !deletedIds.has(e.biometricPin))) {
+            empMap.set(e.id || e.employeeId, e);
+          }
+        });
+        validEmpData.forEach((e: Employee) => empMap.set(e.id || e.employeeId, e));
 
         const mergedEmps = Array.from(empMap.values());
         this.setItem(STORAGE_KEYS.EMPLOYEES, mergedEmps);
 
         // Find local employees missing in Supabase and push them immediately
         const missingEmps = localEmps.filter(
-          (e) => !remoteEmpIds.has(e.id) && !remoteEmpCodes.has(e.employeeId)
+          (e) => !deletedIds.has(e.id) && !deletedIds.has(e.employeeId) && !remoteEmpIds.has(e.id) && !remoteEmpCodes.has(e.employeeId)
         );
         if (missingEmps.length > 0) {
           await this.pushToSupabase('employees', missingEmps);
@@ -156,14 +183,19 @@ class DatabaseService {
       // 3. Sync Attendance Records from Supabase
       const { data: attData, error: attErr } = await supabase.from('attendance_records').select('*');
       if (!attErr && attData) {
+        const validAttData = attData.filter((a: AttendanceRecord) => !deletedIds.has(a.employeeId) && (!a.biometricPin || !deletedIds.has(a.biometricPin)));
         const localAtt = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
         const attMap = new Map<string, AttendanceRecord>();
-        localAtt.forEach((a) => attMap.set(a.id || `${a.employeeId}-${a.date}`, a));
-        attData.forEach((a: AttendanceRecord) => attMap.set(a.id || `${a.employeeId}-${a.date}`, a));
+        localAtt.forEach((a) => {
+          if (!deletedIds.has(a.employeeId) && (!a.biometricPin || !deletedIds.has(a.biometricPin))) {
+            attMap.set(a.id || `${a.employeeId}-${a.date}`, a);
+          }
+        });
+        validAttData.forEach((a: AttendanceRecord) => attMap.set(a.id || `${a.employeeId}-${a.date}`, a));
         this.setItem(STORAGE_KEYS.ATTENDANCE, Array.from(attMap.values()));
 
-        const remoteAttIds = new Set(attData.map((a: any) => a.id));
-        const missingAtt = localAtt.filter((a) => a.id && !remoteAttIds.has(a.id));
+        const remoteAttIds = new Set(validAttData.map((a: any) => a.id));
+        const missingAtt = localAtt.filter((a) => a.id && !deletedIds.has(a.employeeId) && !remoteAttIds.has(a.id));
         if (missingAtt.length > 0) {
           await this.pushToSupabase('attendance_records', missingAtt);
         }
@@ -172,14 +204,17 @@ class DatabaseService {
       // 4. Sync Leave Requests from Supabase
       const { data: leaveData, error: leaveErr } = await supabase.from('leave_requests').select('*');
       if (!leaveErr && leaveData) {
+        const validLeaveData = leaveData.filter((l: LeaveRequest) => !deletedIds.has(l.employeeId));
         const localLeaves = this.getItem<LeaveRequest[]>(STORAGE_KEYS.LEAVES, INITIAL_LEAVE_REQUESTS);
         const leaveMap = new Map<string, LeaveRequest>();
-        localLeaves.forEach((l) => leaveMap.set(l.id, l));
-        leaveData.forEach((l: LeaveRequest) => leaveMap.set(l.id, l));
+        localLeaves.forEach((l) => {
+          if (!deletedIds.has(l.employeeId)) leaveMap.set(l.id, l);
+        });
+        validLeaveData.forEach((l: LeaveRequest) => leaveMap.set(l.id, l));
         this.setItem(STORAGE_KEYS.LEAVES, Array.from(leaveMap.values()));
 
-        const remoteLeaveIds = new Set(leaveData.map((l: any) => l.id));
-        const missingLeaves = localLeaves.filter((l) => !remoteLeaveIds.has(l.id));
+        const remoteLeaveIds = new Set(validLeaveData.map((l: any) => l.id));
+        const missingLeaves = localLeaves.filter((l) => !deletedIds.has(l.employeeId) && !remoteLeaveIds.has(l.id));
         if (missingLeaves.length > 0) {
           await this.pushToSupabase('leave_requests', missingLeaves);
         }
@@ -188,14 +223,17 @@ class DatabaseService {
       // 5. Sync Time Correction Requests
       const { data: corrData, error: corrErr } = await supabase.from('time_corrections').select('*');
       if (!corrErr && corrData) {
+        const validCorrData = corrData.filter((c: TimeCorrectionRequest) => !deletedIds.has(c.employeeId));
         const localCorr = this.getItem<TimeCorrectionRequest[]>(STORAGE_KEYS.CORRECTIONS, INITIAL_TIME_CORRECTIONS);
         const corrMap = new Map<string, TimeCorrectionRequest>();
-        localCorr.forEach((c) => corrMap.set(c.id, c));
-        corrData.forEach((c: TimeCorrectionRequest) => corrMap.set(c.id, c));
+        localCorr.forEach((c) => {
+          if (!deletedIds.has(c.employeeId)) corrMap.set(c.id, c);
+        });
+        validCorrData.forEach((c: TimeCorrectionRequest) => corrMap.set(c.id, c));
         this.setItem(STORAGE_KEYS.CORRECTIONS, Array.from(corrMap.values()));
 
-        const remoteCorrIds = new Set(corrData.map((c: any) => c.id));
-        const missingCorr = localCorr.filter((c) => !remoteCorrIds.has(c.id));
+        const remoteCorrIds = new Set(validCorrData.map((c: any) => c.id));
+        const missingCorr = localCorr.filter((c) => !deletedIds.has(c.employeeId) && !remoteCorrIds.has(c.id));
         if (missingCorr.length > 0) {
           await this.pushToSupabase('time_corrections', missingCorr);
         }
@@ -204,14 +242,23 @@ class DatabaseService {
       // 6. Sync Holidays from Supabase
       const { data: holData, error: holErr } = await supabase.from('holidays').select('*');
       if (!holErr && holData) {
+        const validHolData = holData.filter((h: Holiday) => !deletedIds.has(h.id));
+        holData.forEach((h: Holiday) => {
+          if (deletedIds.has(h.id)) {
+            supabase.from('holidays').delete().eq('id', h.id).then();
+          }
+        });
+
         const localHol = this.getItem<Holiday[]>(STORAGE_KEYS.HOLIDAYS, INITIAL_HOLIDAYS);
         const holMap = new Map<string, Holiday>();
-        localHol.forEach((h) => holMap.set(h.id, h));
-        holData.forEach((h: Holiday) => holMap.set(h.id, h));
+        localHol.forEach((h) => {
+          if (!deletedIds.has(h.id)) holMap.set(h.id, h);
+        });
+        validHolData.forEach((h: Holiday) => holMap.set(h.id, h));
         this.setItem(STORAGE_KEYS.HOLIDAYS, Array.from(holMap.values()));
 
-        const remoteHolIds = new Set(holData.map((h: any) => h.id));
-        const missingHol = localHol.filter((h) => !remoteHolIds.has(h.id));
+        const remoteHolIds = new Set(validHolData.map((h: any) => h.id));
+        const missingHol = localHol.filter((h) => !deletedIds.has(h.id) && !remoteHolIds.has(h.id));
         if (missingHol.length > 0) {
           await this.pushToSupabase('holidays', missingHol);
         }
@@ -324,10 +371,68 @@ class DatabaseService {
     }
   }
 
+  private getDeletedIds(): Set<string> {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.DELETED_IDS);
+      return data ? new Set(JSON.parse(data)) : new Set();
+    } catch {
+      return new Set();
+    }
+  }
+
+  private addDeletedIds(...ids: (string | undefined)[]) {
+    const current = this.getDeletedIds();
+    let updated = false;
+    ids.forEach((id) => {
+      if (id && id.trim()) {
+        current.add(id.trim());
+        updated = true;
+      }
+    });
+    if (updated) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(Array.from(current)));
+      } catch (e) {
+        console.error('Error saving deleted IDs:', e);
+      }
+    }
+  }
+
+  private removeDeletedIds(...ids: (string | undefined)[]) {
+    const current = this.getDeletedIds();
+    let updated = false;
+    ids.forEach((id) => {
+      if (id && current.has(id)) {
+        current.delete(id);
+        updated = true;
+      }
+    });
+    if (updated) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(Array.from(current)));
+      } catch (e) {
+        console.error('Error updating deleted IDs:', e);
+      }
+    }
+  }
+
   private getItem<T>(key: string, defaultVal: T): T {
     try {
       const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : defaultVal;
+      const val = data ? JSON.parse(data) : defaultVal;
+      const deletedIds = this.getDeletedIds();
+
+      if (Array.isArray(val) && deletedIds.size > 0) {
+        return val.filter((item: any) => {
+          if (!item) return false;
+          if (item.id && deletedIds.has(item.id)) return false;
+          if (item.employeeId && deletedIds.has(item.employeeId)) return false;
+          if (item.biometricPin && deletedIds.has(item.biometricPin)) return false;
+          return true;
+        }) as unknown as T;
+      }
+
+      return val;
     } catch {
       return defaultVal;
     }
@@ -530,6 +635,7 @@ class DatabaseService {
   }
 
   public saveEmployee(emp: Employee) {
+    this.removeDeletedIds(emp.id, emp.employeeId, emp.biometricPin);
     const list = this.getEmployees();
     const idx = list.findIndex((e) => e.id === emp.id || e.employeeId === emp.employeeId);
     if (idx >= 0) {
@@ -577,19 +683,53 @@ class DatabaseService {
 
   public deleteEmployee(empId: string) {
     const list = this.getEmployees();
-    const target = list.find((e) => e.id === empId || e.employeeId === empId);
-    const filtered = list.filter((e) => e.id !== empId && e.employeeId !== empId);
+    const target = list.find((e) => e.id === empId || e.employeeId === empId || e.biometricPin === empId);
+
+    const targetId = target?.id || empId;
+    const targetEmpCode = target?.employeeId || empId;
+    const targetPin = target?.biometricPin;
+
+    this.addDeletedIds(targetId, targetEmpCode, targetPin);
+
+    const filtered = list.filter(
+      (e) => e.id !== targetId && e.employeeId !== targetEmpCode && (!targetPin || e.biometricPin !== targetPin)
+    );
     this.setItem(STORAGE_KEYS.EMPLOYEES, filtered);
+
+    // Also remove associated user accounts
+    const users = this.getItem<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const filteredUsers = users.filter((u) => u.id !== targetId && u.employeeId !== targetEmpCode);
+    this.setItem(STORAGE_KEYS.USERS, filteredUsers);
+
+    // Also remove associated attendance, leaves, corrections
+    const attendance = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
+    const filteredAtt = attendance.filter(
+      (a) => a.employeeId !== targetEmpCode && a.employeeId !== targetId && (!targetPin || a.biometricPin !== targetPin)
+    );
+    this.setItem(STORAGE_KEYS.ATTENDANCE, filteredAtt);
+
+    const leaves = this.getItem<LeaveRequest[]>(STORAGE_KEYS.LEAVES, INITIAL_LEAVE_REQUESTS);
+    const filteredLeaves = leaves.filter(
+      (l) => l.employeeId !== targetEmpCode && l.employeeId !== targetId
+    );
+    this.setItem(STORAGE_KEYS.LEAVES, filteredLeaves);
+
+    // Issue Supabase delete calls
     if (target) {
       supabase.from('employees').delete().eq('id', target.id).then();
+      supabase.from('employees').delete().eq('employeeId', target.employeeId).then();
+    } else {
+      supabase.from('employees').delete().eq('id', empId).then();
+      supabase.from('employees').delete().eq('employeeId', empId).then();
     }
+
     const user = this.getCurrentUser();
     this.addAuditLog(
       user?.name || 'HR Administrator',
       user?.role || 'HR Administrator',
       'Permanently Deleted Employee',
       'Employee Directory',
-      `Permanently deleted employee ${target?.fullName || empId} (${target?.employeeId || empId})`
+      `Permanently deleted employee ${target?.fullName || empId} (${targetEmpCode})`
     );
   }
 
@@ -734,6 +874,7 @@ class DatabaseService {
   }
 
   public saveHoliday(holiday: Holiday) {
+    this.removeDeletedIds(holiday.id);
     const list = this.getHolidays();
     const idx = list.findIndex((h) => h.id === holiday.id);
     if (idx >= 0) list[idx] = holiday;
@@ -753,6 +894,8 @@ class DatabaseService {
   public deleteHoliday(holidayId: string) {
     const list = this.getHolidays();
     const target = list.find((h) => h.id === holidayId);
+    this.addDeletedIds(holidayId);
+
     const filtered = list.filter((h) => h.id !== holidayId);
     this.setItem(STORAGE_KEYS.HOLIDAYS, filtered);
     supabase.from('holidays').delete().eq('id', holidayId).then();
@@ -906,6 +1049,7 @@ class DatabaseService {
   }
 
   public saveShift(shift: Shift) {
+    this.removeDeletedIds(shift.id);
     const list = this.getShifts();
     const idx = list.findIndex((s) => s.id === shift.id);
     if (idx >= 0) list[idx] = shift;
@@ -916,9 +1060,20 @@ class DatabaseService {
 
   public deleteShift(shiftId: string) {
     const list = this.getShifts();
+    const target = list.find((s) => s.id === shiftId);
+    this.addDeletedIds(shiftId);
+
     const filtered = list.filter((s) => s.id !== shiftId);
     this.setItem(STORAGE_KEYS.SHIFTS, filtered);
     supabase.from('shifts').delete().eq('id', shiftId).then();
+    const user = this.getCurrentUser();
+    this.addAuditLog(
+      user?.name || 'HR Administrator',
+      user?.role || 'HR Administrator',
+      'Deleted Shift',
+      'Shift Management',
+      `Deleted shift: ${target?.name || shiftId}`
+    );
   }
 
   // --- Announcements & Audit Logs ---

@@ -163,21 +163,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoginSuccess, settings }
               </button>
             </form>
 
-            {/* Quick Access Credentials Banner */}
-            <div className="mt-5 p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] space-y-1 font-medium text-slate-600">
-              <div className="flex items-center justify-between font-semibold text-slate-900 mb-1">
-                <span>🔑 Fast Sign In Credentials</span>
-              </div>
-              <p className="text-slate-700">
-                <span className="font-bold text-slate-900">HR Admin:</span> hr@omshipping.com / OmShippingGreat.com
-              </p>
-              <p className="text-slate-700">
-                <span className="font-bold text-slate-900">Employee Code:</span> OSS/13/2026 or OM0001 (Password: OM0001)
-              </p>
-              <p className="text-slate-700">
-                <span className="font-bold text-slate-900">Biometric PIN:</span> 1024 (Password: OM0001)
-              </p>
-            </div>
+
 
             {/* Bottom Tagline requested by user */}
             <div className="mt-4 pt-3 border-t border-slate-100 text-center">
