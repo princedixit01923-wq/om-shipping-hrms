@@ -47,8 +47,7 @@ const STORAGE_KEYS = {
   PAYROLL_RUNS: 'om_hrms_payroll_runs',
   ANNOUNCEMENTS: 'om_hrms_announcements',
   AUDIT_LOGS: 'om_hrms_audit_logs',
-  SESSION_USER: 'om_hrms_session_user',
-  DELETED_IDS: 'om_hrms_deleted_ids'
+  SESSION_USER: 'om_hrms_session_user'
 };
 
 type EventCallback = () => void;
@@ -56,6 +55,7 @@ type EventCallback = () => void;
 class DatabaseService {
   private listeners: Set<EventCallback> = new Set();
   public isCloudConnected: boolean = false;
+  private isSyncing: boolean = false;
 
   constructor() {
     this.initSeedData();
@@ -75,22 +75,23 @@ class DatabaseService {
   }
 
   /**
-   * Set up real-time websocket and focus event listeners to keep laptop & phone 100% in sync
+   * Set up real-time websocket and focus event listeners for instant cross-device sync
    */
   private initRealtimeAndSyncListeners() {
-    // 1. Supabase Postgres Realtime Changes
+    // 1. Supabase Postgres Realtime Changes Listener
     try {
       supabase
         .channel('public:realtime_hrms')
-        .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+        .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+          console.log('⚡ Real-time DB Event Received:', payload.eventType, payload.table);
           this.syncFromSupabase();
         })
         .subscribe();
     } catch (e) {
-      console.warn('Supabase Realtime not subscribed:', e);
+      console.warn('Supabase Realtime subscription notice:', e);
     }
 
-    // 2. Window Focus & Visibility Change (Crucial for mobile <-> laptop multi-device sync)
+    // 2. Window Focus & Visibility Change Sync
     if (typeof window !== 'undefined') {
       window.addEventListener('focus', () => {
         this.syncFromSupabase();
@@ -100,7 +101,7 @@ class DatabaseService {
           this.syncFromSupabase();
         }
       });
-      // 3. Periodic Background Pulse every 3 seconds for instant cross-device sync
+      // 3. Fast Periodic Pulse every 3 seconds for instant multi-device sync
       setInterval(() => {
         this.syncFromSupabase();
       }, 3000);
@@ -108,226 +109,152 @@ class DatabaseService {
   }
 
   /**
-   * Background Supabase Cloud Real-time Fetch & Bi-directional Sync for All Entities
+   * Background Supabase Cloud Real-time Fetch & Synchronization for All Entities
+   * Supabase Cloud database is the authoritative single source of truth.
    */
   public async syncFromSupabase() {
-    try {
-      const deletedIds = this.getDeletedIds();
+    if (this.isSyncing) return;
+    this.isSyncing = true;
 
-      // 1. Sync Shifts FIRST (prevents Foreign Key violation on employees table)
+    try {
+      let hasChanged = false;
+
+      // 1. Sync Shifts
       const { data: shiftData, error: shiftErr } = await supabase.from('shifts').select('*');
       if (!shiftErr && shiftData) {
-        const validShiftData = shiftData.filter((s: Shift) => !deletedIds.has(s.id));
-        shiftData.forEach((s: Shift) => {
-          if (deletedIds.has(s.id)) {
-            supabase.from('shifts').delete().eq('id', s.id).then();
-          }
-        });
-
-        const localShifts = this.getItem<Shift[]>(STORAGE_KEYS.SHIFTS, INITIAL_SHIFTS);
-        const shiftMap = new Map<string, Shift>();
-        localShifts.forEach((s) => {
-          if (!deletedIds.has(s.id)) shiftMap.set(s.id, s);
-        });
-        validShiftData.forEach((s: Shift) => shiftMap.set(s.id, s));
-        const mergedShifts = Array.from(shiftMap.values());
-        this.setItem(STORAGE_KEYS.SHIFTS, mergedShifts);
-
-        const remoteShiftIds = new Set(validShiftData.map((s: any) => s.id));
-        const missingShifts = localShifts.filter((s) => !deletedIds.has(s.id) && !remoteShiftIds.has(s.id));
-        if (missingShifts.length > 0) {
-          await this.pushToSupabase('shifts', missingShifts);
+        this.isCloudConnected = true;
+        const currentShifts = this.getItem<Shift[]>(STORAGE_KEYS.SHIFTS, []);
+        if (JSON.stringify(currentShifts) !== JSON.stringify(shiftData)) {
+          this.setItem(STORAGE_KEYS.SHIFTS, shiftData, false);
+          hasChanged = true;
         }
       }
 
-      // 2. Sync Employees from Supabase with bi-directional merge
+      // 2. Sync Employees
       const { data: empData, error: empErr } = await supabase.from('employees').select('*');
       if (!empErr && empData) {
         this.isCloudConnected = true;
-        const validEmpData = empData.filter(
-          (e: Employee) => !deletedIds.has(e.id) && !deletedIds.has(e.employeeId) && (!e.biometricPin || !deletedIds.has(e.biometricPin))
-        );
-
-        empData.forEach((e: Employee) => {
-          if (deletedIds.has(e.id) || deletedIds.has(e.employeeId) || (e.biometricPin && deletedIds.has(e.biometricPin))) {
-            supabase.from('employees').delete().eq('id', e.id).then();
-            supabase.from('employees').delete().eq('employeeId', e.employeeId).then();
-          }
-        });
-
-        const localEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES);
-
-        const remoteEmpIds = new Set(validEmpData.map((e: any) => e.id));
-        const remoteEmpCodes = new Set(validEmpData.map((e: any) => e.employeeId));
-
-        const empMap = new Map<string, Employee>();
-        localEmps.forEach((e) => {
-          if (!deletedIds.has(e.id) && !deletedIds.has(e.employeeId) && (!e.biometricPin || !deletedIds.has(e.biometricPin))) {
-            empMap.set(e.id || e.employeeId, e);
-          }
-        });
-        validEmpData.forEach((e: Employee) => empMap.set(e.id || e.employeeId, e));
-
-        const mergedEmps = Array.from(empMap.values());
-        this.setItem(STORAGE_KEYS.EMPLOYEES, mergedEmps);
-
-        // Find local employees missing in Supabase and push them immediately
-        const missingEmps = localEmps.filter(
-          (e) => !deletedIds.has(e.id) && !deletedIds.has(e.employeeId) && !remoteEmpIds.has(e.id) && !remoteEmpCodes.has(e.employeeId)
-        );
-        if (missingEmps.length > 0) {
-          await this.pushToSupabase('employees', missingEmps);
+        const currentEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
+        if (JSON.stringify(currentEmps) !== JSON.stringify(empData)) {
+          this.setItem(STORAGE_KEYS.EMPLOYEES, empData, false);
+          hasChanged = true;
         }
       }
 
-      // 3. Sync Attendance Records from Supabase
-      const { data: attData, error: attErr } = await supabase.from('attendance_records').select('*');
+      // 3. Sync Attendance Records
+      const { data: attData, error: attErr } = await supabase
+        .from('attendance_records')
+        .select('*')
+        .order('created_at', { ascending: false });
       if (!attErr && attData) {
-        const validAttData = attData.filter((a: AttendanceRecord) => !deletedIds.has(a.employeeId) && (!a.biometricPin || !deletedIds.has(a.biometricPin)));
-        const localAtt = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
-        const attMap = new Map<string, AttendanceRecord>();
-        localAtt.forEach((a) => {
-          if (!deletedIds.has(a.employeeId) && (!a.biometricPin || !deletedIds.has(a.biometricPin))) {
-            attMap.set(a.id || `${a.employeeId}-${a.date}`, a);
-          }
-        });
-        validAttData.forEach((a: AttendanceRecord) => attMap.set(a.id || `${a.employeeId}-${a.date}`, a));
-        this.setItem(STORAGE_KEYS.ATTENDANCE, Array.from(attMap.values()));
-
-        const remoteAttIds = new Set(validAttData.map((a: any) => a.id));
-        const missingAtt = localAtt.filter((a) => a.id && !deletedIds.has(a.employeeId) && !remoteAttIds.has(a.id));
-        if (missingAtt.length > 0) {
-          await this.pushToSupabase('attendance_records', missingAtt);
+        const currentAtt = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
+        if (JSON.stringify(currentAtt) !== JSON.stringify(attData)) {
+          this.setItem(STORAGE_KEYS.ATTENDANCE, attData, false);
+          hasChanged = true;
         }
       }
 
-      // 4. Sync Leave Requests from Supabase
-      const { data: leaveData, error: leaveErr } = await supabase.from('leave_requests').select('*');
+      // 4. Sync Leave Requests
+      const { data: leaveData, error: leaveErr } = await supabase
+        .from('leave_requests')
+        .select('*')
+        .order('createdAt', { ascending: false });
       if (!leaveErr && leaveData) {
-        const validLeaveData = leaveData.filter((l: LeaveRequest) => !deletedIds.has(l.employeeId));
-        const localLeaves = this.getItem<LeaveRequest[]>(STORAGE_KEYS.LEAVES, INITIAL_LEAVE_REQUESTS);
-        const leaveMap = new Map<string, LeaveRequest>();
-        localLeaves.forEach((l) => {
-          if (!deletedIds.has(l.employeeId)) leaveMap.set(l.id, l);
-        });
-        validLeaveData.forEach((l: LeaveRequest) => leaveMap.set(l.id, l));
-        this.setItem(STORAGE_KEYS.LEAVES, Array.from(leaveMap.values()));
-
-        const remoteLeaveIds = new Set(validLeaveData.map((l: any) => l.id));
-        const missingLeaves = localLeaves.filter((l) => !deletedIds.has(l.employeeId) && !remoteLeaveIds.has(l.id));
-        if (missingLeaves.length > 0) {
-          await this.pushToSupabase('leave_requests', missingLeaves);
+        const currentLeave = this.getItem<LeaveRequest[]>(STORAGE_KEYS.LEAVES, []);
+        if (JSON.stringify(currentLeave) !== JSON.stringify(leaveData)) {
+          this.setItem(STORAGE_KEYS.LEAVES, leaveData, false);
+          hasChanged = true;
         }
       }
 
       // 5. Sync Time Correction Requests
-      const { data: corrData, error: corrErr } = await supabase.from('time_corrections').select('*');
+      const { data: corrData, error: corrErr } = await supabase
+        .from('time_corrections')
+        .select('*')
+        .order('createdAt', { ascending: false });
       if (!corrErr && corrData) {
-        const validCorrData = corrData.filter((c: TimeCorrectionRequest) => !deletedIds.has(c.employeeId));
-        const localCorr = this.getItem<TimeCorrectionRequest[]>(STORAGE_KEYS.CORRECTIONS, INITIAL_TIME_CORRECTIONS);
-        const corrMap = new Map<string, TimeCorrectionRequest>();
-        localCorr.forEach((c) => {
-          if (!deletedIds.has(c.employeeId)) corrMap.set(c.id, c);
-        });
-        validCorrData.forEach((c: TimeCorrectionRequest) => corrMap.set(c.id, c));
-        this.setItem(STORAGE_KEYS.CORRECTIONS, Array.from(corrMap.values()));
-
-        const remoteCorrIds = new Set(validCorrData.map((c: any) => c.id));
-        const missingCorr = localCorr.filter((c) => !deletedIds.has(c.employeeId) && !remoteCorrIds.has(c.id));
-        if (missingCorr.length > 0) {
-          await this.pushToSupabase('time_corrections', missingCorr);
+        const currentCorr = this.getItem<TimeCorrectionRequest[]>(STORAGE_KEYS.CORRECTIONS, []);
+        if (JSON.stringify(currentCorr) !== JSON.stringify(corrData)) {
+          this.setItem(STORAGE_KEYS.CORRECTIONS, corrData, false);
+          hasChanged = true;
         }
       }
 
-      // 6. Sync Holidays from Supabase
-      const { data: holData, error: holErr } = await supabase.from('holidays').select('*');
+      // 6. Sync Holidays
+      const { data: holData, error: holErr } = await supabase
+        .from('holidays')
+        .select('*')
+        .order('date', { ascending: true });
       if (!holErr && holData) {
-        const validHolData = holData.filter((h: Holiday) => !deletedIds.has(h.id));
-        holData.forEach((h: Holiday) => {
-          if (deletedIds.has(h.id)) {
-            supabase.from('holidays').delete().eq('id', h.id).then();
-          }
-        });
-
-        const localHol = this.getItem<Holiday[]>(STORAGE_KEYS.HOLIDAYS, INITIAL_HOLIDAYS);
-        const holMap = new Map<string, Holiday>();
-        localHol.forEach((h) => {
-          if (!deletedIds.has(h.id)) holMap.set(h.id, h);
-        });
-        validHolData.forEach((h: Holiday) => holMap.set(h.id, h));
-        this.setItem(STORAGE_KEYS.HOLIDAYS, Array.from(holMap.values()));
-
-        const remoteHolIds = new Set(validHolData.map((h: any) => h.id));
-        const missingHol = localHol.filter((h) => !deletedIds.has(h.id) && !remoteHolIds.has(h.id));
-        if (missingHol.length > 0) {
-          await this.pushToSupabase('holidays', missingHol);
+        const currentHol = this.getItem<Holiday[]>(STORAGE_KEYS.HOLIDAYS, []);
+        if (JSON.stringify(currentHol) !== JSON.stringify(holData)) {
+          this.setItem(STORAGE_KEYS.HOLIDAYS, holData, false);
+          hasChanged = true;
         }
       }
 
-      // 7. Sync Announcements from Supabase
-      const { data: ancData, error: ancErr } = await supabase.from('announcements').select('*');
+      // 7. Sync Announcements
+      const { data: ancData, error: ancErr } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('publishedAt', { ascending: false });
       if (!ancErr && ancData) {
-        const localAnc = this.getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS);
-        const ancMap = new Map<string, Announcement>();
-        localAnc.forEach((a) => ancMap.set(a.id, a));
-        ancData.forEach((a: Announcement) => ancMap.set(a.id, a));
-        this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, Array.from(ancMap.values()));
-
-        const remoteAncIds = new Set(ancData.map((a: any) => a.id));
-        const missingAnc = localAnc.filter((a) => !remoteAncIds.has(a.id));
-        if (missingAnc.length > 0) {
-          await this.pushToSupabase('announcements', missingAnc);
+        const currentAnc = this.getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, []);
+        if (JSON.stringify(currentAnc) !== JSON.stringify(ancData)) {
+          this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, ancData, false);
+          hasChanged = true;
         }
       }
 
       // 8. Sync Payroll Runs
-      const { data: prData, error: prErr } = await supabase.from('payroll_runs').select('*');
+      const { data: prData, error: prErr } = await supabase
+        .from('payroll_runs')
+        .select('*')
+        .order('processedAt', { ascending: false });
       if (!prErr && prData) {
-        const localPr = this.getItem<PayrollRun[]>(STORAGE_KEYS.PAYROLL_RUNS, INITIAL_PAYROLL_RUNS);
-        const prMap = new Map<string, PayrollRun>();
-        localPr.forEach((p) => prMap.set(p.id, p));
-        prData.forEach((p: PayrollRun) => prMap.set(p.id, p));
-        this.setItem(STORAGE_KEYS.PAYROLL_RUNS, Array.from(prMap.values()));
-
-        const remotePrIds = new Set(prData.map((p: any) => p.id));
-        const missingPr = localPr.filter((p) => !remotePrIds.has(p.id));
-        if (missingPr.length > 0) {
-          await this.pushToSupabase('payroll_runs', missingPr);
+        const currentPr = this.getItem<PayrollRun[]>(STORAGE_KEYS.PAYROLL_RUNS, []);
+        if (JSON.stringify(currentPr) !== JSON.stringify(prData)) {
+          this.setItem(STORAGE_KEYS.PAYROLL_RUNS, prData, false);
+          hasChanged = true;
         }
       }
 
       // 9. Sync Payslips
-      const { data: psData, error: psErr } = await supabase.from('payslips').select('*');
+      const { data: psData, error: psErr } = await supabase
+        .from('payslips')
+        .select('*')
+        .order('generatedAt', { ascending: false });
       if (!psErr && psData) {
-        const localPs = this.getItem<Payslip[]>(STORAGE_KEYS.PAYSLIPS, INITIAL_PAYSLIPS);
-        const psMap = new Map<string, Payslip>();
-        localPs.forEach((p) => psMap.set(p.id, p));
-        psData.forEach((p: Payslip) => psMap.set(p.id, p));
-        this.setItem(STORAGE_KEYS.PAYSLIPS, Array.from(psMap.values()));
-
-        const remotePsIds = new Set(psData.map((p: any) => p.id));
-        const missingPs = localPs.filter((p) => !remotePsIds.has(p.id));
-        if (missingPs.length > 0) {
-          await this.pushToSupabase('payslips', missingPs);
+        const currentPs = this.getItem<Payslip[]>(STORAGE_KEYS.PAYSLIPS, []);
+        if (JSON.stringify(currentPs) !== JSON.stringify(psData)) {
+          this.setItem(STORAGE_KEYS.PAYSLIPS, psData, false);
+          hasChanged = true;
         }
       }
 
       // 10. Sync Audit Logs
-      const { data: auditData, error: auditErr } = await supabase.from('audit_logs').select('*').limit(100);
+      const { data: auditData, error: auditErr } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(100);
       if (!auditErr && auditData) {
-        const localAud = this.getItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS);
-        const audMap = new Map<string, AuditLog>();
-        localAud.forEach((a) => audMap.set(a.id, a));
-        auditData.forEach((a: AuditLog) => audMap.set(a.id, a));
-        this.setItem(STORAGE_KEYS.AUDIT_LOGS, Array.from(audMap.values()));
+        const currentAudit = this.getItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, []);
+        if (JSON.stringify(currentAudit) !== JSON.stringify(auditData)) {
+          this.setItem(STORAGE_KEYS.AUDIT_LOGS, auditData, false);
+          hasChanged = true;
+        }
       }
 
-      // 11. Sync Company Settings from Supabase
-      const { data: settingsData, error: settingsErr } = await supabase.from('company_settings').select('*').limit(1);
+      // 11. Sync Company Settings
+      const { data: settingsData, error: settingsErr } = await supabase
+        .from('company_settings')
+        .select('*')
+        .limit(1);
       if (!settingsErr && settingsData && settingsData.length > 0) {
         const setRow = settingsData[0];
         const current = this.getSettings();
-        this.setItem(STORAGE_KEYS.SETTINGS, {
+        const updatedSettings: CompanySettings = {
           ...current,
           companyName: setRow.companyName || current.companyName,
           tagline: setRow.tagline || current.tagline,
@@ -335,10 +262,20 @@ class DatabaseService {
           phone: setRow.phone || current.phone,
           email: setRow.email || current.email,
           website: setRow.website || current.website
-        });
+        };
+        if (JSON.stringify(current) !== JSON.stringify(updatedSettings)) {
+          this.setItem(STORAGE_KEYS.SETTINGS, updatedSettings, false);
+          hasChanged = true;
+        }
+      }
+
+      if (hasChanged) {
+        this.notify();
       }
     } catch (err) {
       console.warn('Supabase sync notice:', err);
+    } finally {
+      this.isSyncing = false;
     }
   }
 
@@ -371,77 +308,21 @@ class DatabaseService {
     }
   }
 
-  private getDeletedIds(): Set<string> {
-    try {
-      const data = localStorage.getItem(STORAGE_KEYS.DELETED_IDS);
-      return data ? new Set(JSON.parse(data)) : new Set();
-    } catch {
-      return new Set();
-    }
-  }
-
-  private addDeletedIds(...ids: (string | undefined)[]) {
-    const current = this.getDeletedIds();
-    let updated = false;
-    ids.forEach((id) => {
-      if (id && id.trim()) {
-        current.add(id.trim());
-        updated = true;
-      }
-    });
-    if (updated) {
-      try {
-        localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(Array.from(current)));
-      } catch (e) {
-        console.error('Error saving deleted IDs:', e);
-      }
-    }
-  }
-
-  private removeDeletedIds(...ids: (string | undefined)[]) {
-    const current = this.getDeletedIds();
-    let updated = false;
-    ids.forEach((id) => {
-      if (id && current.has(id)) {
-        current.delete(id);
-        updated = true;
-      }
-    });
-    if (updated) {
-      try {
-        localStorage.setItem(STORAGE_KEYS.DELETED_IDS, JSON.stringify(Array.from(current)));
-      } catch (e) {
-        console.error('Error updating deleted IDs:', e);
-      }
-    }
-  }
-
   private getItem<T>(key: string, defaultVal: T): T {
     try {
       const data = localStorage.getItem(key);
-      const val = data ? JSON.parse(data) : defaultVal;
-      const deletedIds = this.getDeletedIds();
-
-      if (Array.isArray(val) && deletedIds.size > 0) {
-        return val.filter((item: any) => {
-          if (!item) return false;
-          if (item.id && deletedIds.has(item.id)) return false;
-          if (item.employeeId && deletedIds.has(item.employeeId)) return false;
-          if (item.biometricPin && deletedIds.has(item.biometricPin)) return false;
-          return true;
-        }) as unknown as T;
-      }
-
-      return val;
+      return data ? JSON.parse(data) : defaultVal;
     } catch {
       return defaultVal;
     }
   }
 
-  private setItem<T>(key: string, val: T): void {
+  private setItem<T>(key: string, val: T, triggerNotify: boolean = true): void {
     try {
       localStorage.setItem(key, JSON.stringify(val));
-      this.notify();
+      if (triggerNotify) {
+        this.notify();
+      }
     } catch (err) {
       console.error('Storage write error:', err);
     }
@@ -449,45 +330,44 @@ class DatabaseService {
 
   private initSeedData() {
     if (!localStorage.getItem(STORAGE_KEYS.SETTINGS)) {
-      this.setItem(STORAGE_KEYS.SETTINGS, INITIAL_COMPANY_SETTINGS);
+      this.setItem(STORAGE_KEYS.SETTINGS, INITIAL_COMPANY_SETTINGS, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.OFFICE)) {
-      this.setItem(STORAGE_KEYS.OFFICE, INITIAL_PRIMARY_OFFICE);
+      this.setItem(STORAGE_KEYS.OFFICE, INITIAL_PRIMARY_OFFICE, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.SHIFTS)) {
-      this.setItem(STORAGE_KEYS.SHIFTS, INITIAL_SHIFTS);
+      this.setItem(STORAGE_KEYS.SHIFTS, INITIAL_SHIFTS, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
-      this.setItem(STORAGE_KEYS.USERS, INITIAL_USERS);
+      this.setItem(STORAGE_KEYS.USERS, INITIAL_USERS, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.EMPLOYEES)) {
-      this.setItem(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES);
+      this.setItem(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.ATTENDANCE)) {
-      this.setItem(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
+      this.setItem(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.LEAVES)) {
-      this.setItem(STORAGE_KEYS.LEAVES, INITIAL_LEAVE_REQUESTS);
+      this.setItem(STORAGE_KEYS.LEAVES, INITIAL_LEAVE_REQUESTS, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.CORRECTIONS)) {
-      this.setItem(STORAGE_KEYS.CORRECTIONS, INITIAL_TIME_CORRECTIONS);
+      this.setItem(STORAGE_KEYS.CORRECTIONS, INITIAL_TIME_CORRECTIONS, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.HOLIDAYS)) {
-      this.setItem(STORAGE_KEYS.HOLIDAYS, INITIAL_HOLIDAYS);
+      this.setItem(STORAGE_KEYS.HOLIDAYS, INITIAL_HOLIDAYS, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.PAYSLIPS)) {
-      this.setItem(STORAGE_KEYS.PAYSLIPS, INITIAL_PAYSLIPS);
+      this.setItem(STORAGE_KEYS.PAYSLIPS, INITIAL_PAYSLIPS, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.PAYROLL_RUNS)) {
-      this.setItem(STORAGE_KEYS.PAYROLL_RUNS, INITIAL_PAYROLL_RUNS);
+      this.setItem(STORAGE_KEYS.PAYROLL_RUNS, INITIAL_PAYROLL_RUNS, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.ANNOUNCEMENTS)) {
-      this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS);
+      this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS)) {
-      this.setItem(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS);
+      this.setItem(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS, false);
     }
-    // Note: Do NOT pre-seed active session user so opening the link shows login first!
   }
 
   // --- Auth Session ---
@@ -554,7 +434,6 @@ class DatabaseService {
     );
 
     if (emp) {
-      // Validate portal password set by HR (with friendly standard fallback)
       const expectedPass = emp.portalPassword || 'OM0001';
       if (
         cleanPass === expectedPass ||
@@ -586,9 +465,9 @@ class DatabaseService {
     return this.getItem<CompanySettings>(STORAGE_KEYS.SETTINGS, INITIAL_COMPANY_SETTINGS);
   }
 
-  public updateSettings(settings: CompanySettings) {
+  public async updateSettings(settings: CompanySettings) {
     this.setItem(STORAGE_KEYS.SETTINGS, settings);
-    this.pushToSupabase('company_settings', {
+    await this.pushToSupabase('company_settings', {
       id: 1,
       companyName: settings.companyName,
       tagline: settings.tagline,
@@ -634,8 +513,7 @@ class DatabaseService {
     );
   }
 
-  public saveEmployee(emp: Employee) {
-    this.removeDeletedIds(emp.id, emp.employeeId, emp.biometricPin);
+  public async saveEmployee(emp: Employee) {
     const list = this.getEmployees();
     const idx = list.findIndex((e) => e.id === emp.id || e.employeeId === emp.employeeId);
     if (idx >= 0) {
@@ -644,7 +522,7 @@ class DatabaseService {
       list.unshift(emp);
     }
     this.setItem(STORAGE_KEYS.EMPLOYEES, list);
-    this.pushToSupabase('employees', emp);
+    await this.pushToSupabase('employees', emp);
     const user = this.getCurrentUser();
     this.addAuditLog(
       user?.name || 'HR Administrator',
@@ -655,13 +533,13 @@ class DatabaseService {
     );
   }
 
-  public updateEmployeePhoto(empId: string, photoUrl: string) {
+  public async updateEmployeePhoto(empId: string, photoUrl: string) {
     const list = this.getEmployees();
     const emp = list.find((e) => e.id === empId || e.employeeId === empId);
     if (emp) {
       emp.profilePhoto = photoUrl;
       this.setItem(STORAGE_KEYS.EMPLOYEES, list);
-      this.pushToSupabase('employees', emp);
+      await this.pushToSupabase('employees', emp);
 
       const current = this.getCurrentUser();
       if (current && current.employeeId === emp.employeeId) {
@@ -671,17 +549,17 @@ class DatabaseService {
     }
   }
 
-  public toggleEmployeeStatus(empId: string) {
+  public async toggleEmployeeStatus(empId: string) {
     const list = this.getEmployees();
     const emp = list.find((e) => e.id === empId || e.employeeId === empId);
     if (emp) {
       emp.status = emp.status === 'Active' ? 'Inactive' : 'Active';
       this.setItem(STORAGE_KEYS.EMPLOYEES, list);
-      this.pushToSupabase('employees', emp);
+      await this.pushToSupabase('employees', emp);
     }
   }
 
-  public deleteEmployee(empId: string) {
+  public async deleteEmployee(empId: string) {
     const list = this.getEmployees();
     const target = list.find((e) => e.id === empId || e.employeeId === empId || e.biometricPin === empId);
 
@@ -689,38 +567,56 @@ class DatabaseService {
     const targetEmpCode = target?.employeeId || empId;
     const targetPin = target?.biometricPin;
 
-    this.addDeletedIds(targetId, targetEmpCode, targetPin);
-
-    const filtered = list.filter(
+    // 1. Immediately remove from local memory & localStorage
+    const filteredEmps = list.filter(
       (e) => e.id !== targetId && e.employeeId !== targetEmpCode && (!targetPin || e.biometricPin !== targetPin)
     );
-    this.setItem(STORAGE_KEYS.EMPLOYEES, filtered);
+    this.setItem(STORAGE_KEYS.EMPLOYEES, filteredEmps);
 
-    // Also remove associated user accounts
     const users = this.getItem<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
-    const filteredUsers = users.filter((u) => u.id !== targetId && u.employeeId !== targetEmpCode);
-    this.setItem(STORAGE_KEYS.USERS, filteredUsers);
-
-    // Also remove associated attendance, leaves, corrections
-    const attendance = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
-    const filteredAtt = attendance.filter(
-      (a) => a.employeeId !== targetEmpCode && a.employeeId !== targetId && (!targetPin || a.biometricPin !== targetPin)
+    this.setItem(
+      STORAGE_KEYS.USERS,
+      users.filter((u) => u.id !== targetId && u.employeeId !== targetEmpCode)
     );
-    this.setItem(STORAGE_KEYS.ATTENDANCE, filteredAtt);
+
+    const attendance = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
+    this.setItem(
+      STORAGE_KEYS.ATTENDANCE,
+      attendance.filter(
+        (a) => a.employeeId !== targetEmpCode && a.employeeId !== targetId && (!targetPin || a.biometricPin !== targetPin)
+      )
+    );
 
     const leaves = this.getItem<LeaveRequest[]>(STORAGE_KEYS.LEAVES, INITIAL_LEAVE_REQUESTS);
-    const filteredLeaves = leaves.filter(
-      (l) => l.employeeId !== targetEmpCode && l.employeeId !== targetId
+    this.setItem(
+      STORAGE_KEYS.LEAVES,
+      leaves.filter((l) => l.employeeId !== targetEmpCode && l.employeeId !== targetId)
     );
-    this.setItem(STORAGE_KEYS.LEAVES, filteredLeaves);
 
-    // Issue Supabase delete calls
-    if (target) {
-      supabase.from('employees').delete().eq('id', target.id).then();
-      supabase.from('employees').delete().eq('employeeId', target.employeeId).then();
-    } else {
-      supabase.from('employees').delete().eq('id', empId).then();
-      supabase.from('employees').delete().eq('employeeId', empId).then();
+    const corrections = this.getItem<TimeCorrectionRequest[]>(STORAGE_KEYS.CORRECTIONS, INITIAL_TIME_CORRECTIONS);
+    this.setItem(
+      STORAGE_KEYS.CORRECTIONS,
+      corrections.filter((c) => c.employeeId !== targetEmpCode && c.employeeId !== targetId)
+    );
+
+    const payslips = this.getItem<Payslip[]>(STORAGE_KEYS.PAYSLIPS, INITIAL_PAYSLIPS);
+    this.setItem(
+      STORAGE_KEYS.PAYSLIPS,
+      payslips.filter((p) => p.employeeId !== targetEmpCode && p.employeeId !== targetId)
+    );
+
+    // 2. Delete permanently from Supabase Cloud (await all calls!)
+    try {
+      await Promise.all([
+        supabase.from('employees').delete().eq('id', targetId),
+        supabase.from('employees').delete().eq('employeeId', targetEmpCode),
+        supabase.from('attendance_records').delete().eq('employeeId', targetEmpCode),
+        supabase.from('leave_requests').delete().eq('employeeId', targetEmpCode),
+        supabase.from('time_corrections').delete().eq('employeeId', targetEmpCode),
+        supabase.from('payslips').delete().eq('employeeId', targetEmpCode)
+      ]);
+    } catch (err) {
+      console.warn('Supabase delete employee notice:', err);
     }
 
     const user = this.getCurrentUser();
@@ -731,6 +627,8 @@ class DatabaseService {
       'Employee Directory',
       `Permanently deleted employee ${target?.fullName || empId} (${targetEmpCode})`
     );
+
+    this.syncFromSupabase();
   }
 
   // --- Attendance ---
@@ -752,10 +650,9 @@ class DatabaseService {
     });
   }
 
-  public recordPunchIn(record: AttendanceRecord) {
+  public async recordPunchIn(record: AttendanceRecord) {
     const list = this.getAttendanceRecords();
 
-    // Strict Rule: Always full day "Present", no late penalty, no salary deduction
     record.status = 'Present';
     record.isLate = false;
     record.isEarlyExit = false;
@@ -768,7 +665,7 @@ class DatabaseService {
       list.unshift(record);
     }
     this.setItem(STORAGE_KEYS.ATTENDANCE, list);
-    this.pushToSupabase('attendance_records', record);
+    await this.pushToSupabase('attendance_records', record);
     this.addAuditLog(
       record.employeeName,
       'Employee',
@@ -778,7 +675,7 @@ class DatabaseService {
     );
   }
 
-  public recordPunchOut(employeeId: string, punchOutLocation: AttendanceRecord['punchOut']) {
+  public async recordPunchOut(employeeId: string, punchOutLocation: AttendanceRecord['punchOut']) {
     const list = this.getAttendanceRecords();
     const todayStr = new Date().toISOString().split('T')[0];
     const rec = list.find((r) => r.employeeId === employeeId && r.date === todayStr);
@@ -787,15 +684,14 @@ class DatabaseService {
       rec.punchOut = punchOutLocation;
       const hours = (punchOutLocation!.timestamp - rec.punchIn.timestamp) / (1000 * 60 * 60);
       rec.workingHours = parseFloat(hours.toFixed(2));
-      
-      // Strict Rule: Always full day "Present", no early exit penalty, no salary deduction
+
       rec.status = 'Present';
       rec.isLate = false;
       rec.isEarlyExit = false;
       rec.remarks = 'Verified GPS Punch (Present)';
 
       this.setItem(STORAGE_KEYS.ATTENDANCE, list);
-      this.pushToSupabase('attendance_records', rec);
+      await this.pushToSupabase('attendance_records', rec);
       this.addAuditLog(
         rec.employeeName,
         'Employee',
@@ -811,15 +707,21 @@ class DatabaseService {
     return this.getItem<LeaveRequest[]>(STORAGE_KEYS.LEAVES, INITIAL_LEAVE_REQUESTS);
   }
 
-  public addLeaveRequest(req: LeaveRequest) {
+  public async addLeaveRequest(req: LeaveRequest) {
     const list = this.getLeaveRequests();
     list.unshift(req);
     this.setItem(STORAGE_KEYS.LEAVES, list);
-    this.pushToSupabase('leave_requests', req);
-    this.addAuditLog(req.employeeName, 'Employee', 'Submitted Leave Request', 'Leave Management', `${req.leaveType} from ${req.fromDate} to ${req.toDate}`);
+    await this.pushToSupabase('leave_requests', req);
+    this.addAuditLog(
+      req.employeeName,
+      'Employee',
+      'Submitted Leave Request',
+      'Leave Management',
+      `${req.leaveType} from ${req.fromDate} to ${req.toDate}`
+    );
   }
 
-  public updateLeaveStatus(id: string, status: 'Approved' | 'Rejected', comment: string, reviewerName: string) {
+  public async updateLeaveStatus(id: string, status: 'Approved' | 'Rejected', comment: string, reviewerName: string) {
     const list = this.getLeaveRequests();
     const req = list.find((r) => r.id === id);
     if (req) {
@@ -828,8 +730,14 @@ class DatabaseService {
       req.reviewedBy = reviewerName;
       req.reviewedAt = new Date().toISOString();
       this.setItem(STORAGE_KEYS.LEAVES, list);
-      this.pushToSupabase('leave_requests', req);
-      this.addAuditLog(reviewerName, 'HR Administrator', `${status} Leave Request`, 'Leave Management', `Leave ID ${id} for ${req.employeeName}`);
+      await this.pushToSupabase('leave_requests', req);
+      this.addAuditLog(
+        reviewerName,
+        'HR Administrator',
+        `${status} Leave Request`,
+        'Leave Management',
+        `Leave ID ${id} for ${req.employeeName}`
+      );
     }
   }
 
@@ -838,14 +746,14 @@ class DatabaseService {
     return this.getItem<TimeCorrectionRequest[]>(STORAGE_KEYS.CORRECTIONS, INITIAL_TIME_CORRECTIONS);
   }
 
-  public addTimeCorrection(req: TimeCorrectionRequest) {
+  public async addTimeCorrection(req: TimeCorrectionRequest) {
     const list = this.getTimeCorrections();
     list.unshift(req);
     this.setItem(STORAGE_KEYS.CORRECTIONS, list);
-    this.pushToSupabase('time_corrections', req);
+    await this.pushToSupabase('time_corrections', req);
   }
 
-  public updateTimeCorrectionStatus(id: string, status: 'Approved' | 'Rejected', comment: string, reviewerName: string) {
+  public async updateTimeCorrectionStatus(id: string, status: 'Approved' | 'Rejected', comment: string, reviewerName: string) {
     const list = this.getTimeCorrections();
     const req = list.find((r) => r.id === id);
     if (req) {
@@ -854,7 +762,7 @@ class DatabaseService {
       req.reviewedBy = reviewerName;
       req.reviewedAt = new Date().toISOString();
       this.setItem(STORAGE_KEYS.CORRECTIONS, list);
-      this.pushToSupabase('time_corrections', req);
+      await this.pushToSupabase('time_corrections', req);
 
       if (status === 'Approved') {
         const attList = this.getAttendanceRecords();
@@ -862,7 +770,7 @@ class DatabaseService {
         if (att) {
           att.remarks = `Corrected by HR (${comment || 'Approved'})`;
           this.setItem(STORAGE_KEYS.ATTENDANCE, attList);
-          this.pushToSupabase('attendance_records', att);
+          await this.pushToSupabase('attendance_records', att);
         }
       }
     }
@@ -873,14 +781,13 @@ class DatabaseService {
     return this.getItem<Holiday[]>(STORAGE_KEYS.HOLIDAYS, INITIAL_HOLIDAYS);
   }
 
-  public saveHoliday(holiday: Holiday) {
-    this.removeDeletedIds(holiday.id);
+  public async saveHoliday(holiday: Holiday) {
     const list = this.getHolidays();
     const idx = list.findIndex((h) => h.id === holiday.id);
     if (idx >= 0) list[idx] = holiday;
     else list.push(holiday);
     this.setItem(STORAGE_KEYS.HOLIDAYS, list);
-    this.pushToSupabase('holidays', holiday);
+    await this.pushToSupabase('holidays', holiday);
     const user = this.getCurrentUser();
     this.addAuditLog(
       user?.name || 'HR Administrator',
@@ -891,14 +798,18 @@ class DatabaseService {
     );
   }
 
-  public deleteHoliday(holidayId: string) {
+  public async deleteHoliday(holidayId: string) {
     const list = this.getHolidays();
     const target = list.find((h) => h.id === holidayId);
-    this.addDeletedIds(holidayId);
-
     const filtered = list.filter((h) => h.id !== holidayId);
     this.setItem(STORAGE_KEYS.HOLIDAYS, filtered);
-    supabase.from('holidays').delete().eq('id', holidayId).then();
+
+    try {
+      await supabase.from('holidays').delete().eq('id', holidayId);
+    } catch (err) {
+      console.warn('Error deleting holiday from Supabase:', err);
+    }
+
     const user = this.getCurrentUser();
     this.addAuditLog(
       user?.name || 'HR Administrator',
@@ -907,6 +818,8 @@ class DatabaseService {
       'Holiday Calendar',
       `Deleted holiday: ${target?.name || holidayId}`
     );
+
+    this.syncFromSupabase();
   }
 
   // --- Payroll & Payslips ---
@@ -918,18 +831,10 @@ class DatabaseService {
     return this.getItem<PayrollRun[]>(STORAGE_KEYS.PAYROLL_RUNS, INITIAL_PAYROLL_RUNS);
   }
 
-  /**
-   * Generates exact monthly payroll according to OM Safety Services LLP format:
-   * Gross = Basic + HRA + Conveyance + Special Allowance + Other Allowance
-   * Total Deductions = PF/EPF + ESI + TDS + Salary Advance/Other + Other Deduction
-   * Net Salary Payable = Gross - Total Deductions
-   * No deductions for absent/half-day/early logout!
-   */
-  public generateMonthlyPayroll(monthYear: string, processedBy: string): PayrollRun {
+  public async generateMonthlyPayroll(monthYear: string, processedBy: string): Promise<PayrollRun> {
     const employees = this.getEmployees();
     const payslips = this.getPayslips();
 
-    // Parse Month and Year (e.g. "2026-08" -> AUGUST 2026)
     const [yearPart, monthPart] = monthYear.split('-');
     const dateObj = new Date(parseInt(yearPart), parseInt(monthPart) - 1, 1);
     const monthName = dateObj.toLocaleString('en-US', { month: 'long' }).toUpperCase();
@@ -1014,7 +919,7 @@ class DatabaseService {
     });
 
     this.setItem(STORAGE_KEYS.PAYSLIPS, payslips);
-    this.pushToSupabase('payslips', payslips);
+    await this.pushToSupabase('payslips', payslips);
 
     const run: PayrollRun = {
       id: `prun-${monthYear}`,
@@ -1031,7 +936,7 @@ class DatabaseService {
     const runs = this.getPayrollRuns();
     runs.unshift(run);
     this.setItem(STORAGE_KEYS.PAYROLL_RUNS, runs);
-    this.pushToSupabase('payroll_runs', run);
+    await this.pushToSupabase('payroll_runs', run);
 
     this.addAuditLog(
       processedBy,
@@ -1048,24 +953,27 @@ class DatabaseService {
     return this.getItem<Shift[]>(STORAGE_KEYS.SHIFTS, INITIAL_SHIFTS);
   }
 
-  public saveShift(shift: Shift) {
-    this.removeDeletedIds(shift.id);
+  public async saveShift(shift: Shift) {
     const list = this.getShifts();
     const idx = list.findIndex((s) => s.id === shift.id);
     if (idx >= 0) list[idx] = shift;
     else list.push(shift);
     this.setItem(STORAGE_KEYS.SHIFTS, list);
-    this.pushToSupabase('shifts', shift);
+    await this.pushToSupabase('shifts', shift);
   }
 
-  public deleteShift(shiftId: string) {
+  public async deleteShift(shiftId: string) {
     const list = this.getShifts();
     const target = list.find((s) => s.id === shiftId);
-    this.addDeletedIds(shiftId);
-
     const filtered = list.filter((s) => s.id !== shiftId);
     this.setItem(STORAGE_KEYS.SHIFTS, filtered);
-    supabase.from('shifts').delete().eq('id', shiftId).then();
+
+    try {
+      await supabase.from('shifts').delete().eq('id', shiftId);
+    } catch (err) {
+      console.warn('Error deleting shift from Supabase:', err);
+    }
+
     const user = this.getCurrentUser();
     this.addAuditLog(
       user?.name || 'HR Administrator',
@@ -1074,6 +982,8 @@ class DatabaseService {
       'Shift Management',
       `Deleted shift: ${target?.name || shiftId}`
     );
+
+    this.syncFromSupabase();
   }
 
   // --- Announcements & Audit Logs ---
@@ -1081,18 +991,42 @@ class DatabaseService {
     return this.getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS);
   }
 
-  public addAnnouncement(anc: Announcement) {
+  public async addAnnouncement(anc: Announcement) {
     const list = this.getAnnouncements();
     list.unshift(anc);
     this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, list);
-    this.pushToSupabase('announcements', anc);
+    await this.pushToSupabase('announcements', anc);
+  }
+
+  public async deleteAnnouncement(announcementId: string) {
+    const list = this.getAnnouncements();
+    const target = list.find((a) => a.id === announcementId);
+    const filtered = list.filter((a) => a.id !== announcementId);
+    this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, filtered);
+
+    try {
+      await supabase.from('announcements').delete().eq('id', announcementId);
+    } catch (err) {
+      console.warn('Error deleting announcement from Supabase:', err);
+    }
+
+    const user = this.getCurrentUser();
+    this.addAuditLog(
+      user?.name || 'HR Administrator',
+      user?.role || 'HR Administrator',
+      'Deleted Announcement',
+      'Announcements',
+      `Deleted announcement: ${target?.title || announcementId}`
+    );
+
+    this.syncFromSupabase();
   }
 
   public getAuditLogs(): AuditLog[] {
     return this.getItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS);
   }
 
-  public addAuditLog(userName: string, userRole: string, action: string, module: string, details: string) {
+  public async addAuditLog(userName: string, userRole: string, action: string, module: string, details: string) {
     const logs = this.getAuditLogs();
     const newLog: AuditLog = {
       id: `aud-${Date.now()}`,
@@ -1106,7 +1040,7 @@ class DatabaseService {
     };
     logs.unshift(newLog);
     this.setItem(STORAGE_KEYS.AUDIT_LOGS, logs);
-    this.pushToSupabase('audit_logs', newLog);
+    await this.pushToSupabase('audit_logs', newLog);
   }
 }
 
