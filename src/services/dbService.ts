@@ -141,7 +141,7 @@ class DatabaseService {
         });
         const currentEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
         if (JSON.stringify(currentEmps) !== JSON.stringify(cleanedEmps)) {
-          this.setItem(STORAGE_KEYS.EMPLOYEES, cleanedEmps, false);
+          this.setItem(STORAGE_KEYS.EMPLOYEES, cleanedEmps, true);
           hasChanged = true;
         }
       }
@@ -323,23 +323,48 @@ class DatabaseService {
     }
   }
 
+  private memoryCache: Map<string, any> = new Map();
+
   private getItem<T>(key: string, defaultVal: T): T {
+    if (this.memoryCache.has(key)) {
+      return this.memoryCache.get(key) as T;
+    }
     try {
       const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : defaultVal;
+      if (data) {
+        const parsed = JSON.parse(data);
+        this.memoryCache.set(key, parsed);
+        return parsed;
+      }
+      return defaultVal;
     } catch {
       return defaultVal;
     }
   }
 
   private setItem<T>(key: string, val: T, triggerNotify: boolean = true): void {
+    this.memoryCache.set(key, val);
     try {
       localStorage.setItem(key, JSON.stringify(val));
-      if (triggerNotify) {
-        this.notify();
-      }
     } catch (err) {
-      console.error('Storage write error:', err);
+      console.warn(`Storage quota notice for ${key}, operating via in-memory cache:`, err);
+      try {
+        if (Array.isArray(val)) {
+          const sanitized = val.map((item: any) => {
+            if (item && item.profilePhoto && item.profilePhoto.length > 50000) {
+              const { profilePhoto, ...rest } = item;
+              return { ...rest, profilePhoto: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150' };
+            }
+            return item;
+          });
+          localStorage.setItem(key, JSON.stringify(sanitized));
+        }
+      } catch {
+        // In-memory cache continues seamlessly
+      }
+    }
+    if (triggerNotify) {
+      this.notify();
     }
   }
 
@@ -532,6 +557,24 @@ class DatabaseService {
   }
 
   // --- Employees ---
+  public async fetchEmployeesFromSupabase(): Promise<Employee[]> {
+    try {
+      const { data, error } = await supabase.from('employees').select('*');
+      if (!error && data !== null) {
+        this.isCloudConnected = true;
+        const cleanedEmps = data.map((e: any) => {
+          const { created_at, ...clean } = e;
+          return clean as Employee;
+        });
+        this.setItem(STORAGE_KEYS.EMPLOYEES, cleanedEmps, true);
+        return cleanedEmps;
+      }
+    } catch (e) {
+      console.warn('Notice fetching employees directly from Supabase:', e);
+    }
+    return this.getEmployees();
+  }
+
   public getEmployees(): Employee[] {
     return this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
   }

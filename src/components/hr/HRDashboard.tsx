@@ -38,6 +38,11 @@ export const HRDashboard: React.FC<HRDashboardProps> = ({ onNavigateTab, setting
 
   useEffect(() => {
     reloadData();
+    dbService.fetchEmployeesFromSupabase().then((data) => {
+      if (data && data.length > 0) {
+        setEmployees(data);
+      }
+    });
     const unsub = dbService.subscribe(reloadData);
     return () => unsub();
   }, []);
