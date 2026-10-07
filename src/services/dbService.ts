@@ -132,11 +132,18 @@ class DatabaseService {
 
       // 2. Sync Employees
       const { data: empData, error: empErr } = await supabase.from('employees').select('*');
-      if (!empErr && empData) {
+      if (!empErr && empData && empData.length > 0) {
         this.isCloudConnected = true;
         const currentEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
-        if (JSON.stringify(currentEmps) !== JSON.stringify(empData)) {
-          this.setItem(STORAGE_KEYS.EMPLOYEES, empData, false);
+        const empMap = new Map<string, Employee>();
+        currentEmps.forEach((e) => empMap.set(e.id || e.employeeId, e));
+        empData.forEach((e: any) => {
+          const { created_at, ...cleanEmp } = e;
+          empMap.set(cleanEmp.id || cleanEmp.employeeId, cleanEmp as Employee);
+        });
+        const mergedEmps = Array.from(empMap.values());
+        if (JSON.stringify(currentEmps) !== JSON.stringify(mergedEmps)) {
+          this.setItem(STORAGE_KEYS.EMPLOYEES, mergedEmps, false);
           hasChanged = true;
         }
       }
@@ -341,8 +348,13 @@ class DatabaseService {
     if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
       this.setItem(STORAGE_KEYS.USERS, INITIAL_USERS, false);
     }
-    if (!localStorage.getItem(STORAGE_KEYS.EMPLOYEES)) {
-      this.setItem(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES, false);
+    const storedEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
+    if (!storedEmps || storedEmps.length < INITIAL_EMPLOYEES.length) {
+      const empMap = new Map<string, Employee>();
+      INITIAL_EMPLOYEES.forEach((e) => empMap.set(e.id || e.employeeId, e));
+      (storedEmps || []).forEach((e) => empMap.set(e.id || e.employeeId, e));
+      const merged = Array.from(empMap.values());
+      this.setItem(STORAGE_KEYS.EMPLOYEES, merged, false);
     }
     if (!localStorage.getItem(STORAGE_KEYS.ATTENDANCE)) {
       this.setItem(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE, false);
@@ -412,7 +424,7 @@ class DatabaseService {
     ) {
       const hrUser: User = {
         id: 'usr-hr-admin',
-        email: 'hr@omsafety.in',
+        email: 'hr@omshipping.com',
         name: 'HR Administrator',
         role: 'HR Administrator',
         employeeId: 'HR001',
