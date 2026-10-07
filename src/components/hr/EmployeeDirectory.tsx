@@ -245,9 +245,10 @@ export const EmployeeDirectory: React.FC = () => {
     setShowModal(false);
   };
 
-  const handleDeleteEmployee = (emp: Employee) => {
+  const handleDeleteEmployee = async (emp: Employee) => {
     if (window.confirm(`Are you sure you want to delete ${emp.fullName} (${emp.employeeId}) permanently?`)) {
-      dbService.deleteEmployee(emp.id);
+      await dbService.deleteEmployee(emp.id);
+      reloadData();
     }
   };
 

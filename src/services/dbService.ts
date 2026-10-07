@@ -47,7 +47,8 @@ const STORAGE_KEYS = {
   PAYROLL_RUNS: 'om_hrms_payroll_runs',
   ANNOUNCEMENTS: 'om_hrms_announcements',
   AUDIT_LOGS: 'om_hrms_audit_logs',
-  SESSION_USER: 'om_hrms_session_user'
+  SESSION_USER: 'om_hrms_session_user',
+  DELETED_EMPLOYEES: 'om_hrms_deleted_employees'
 };
 
 type EventCallback = () => void;
@@ -132,15 +133,29 @@ class DatabaseService {
 
       // 2. Sync Employees
       const { data: empData, error: empErr } = await supabase.from('employees').select('*');
-      if (!empErr && empData && empData.length > 0) {
+      if (!empErr && empData) {
         this.isCloudConnected = true;
         const currentEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
+        const deletedIds = this.getDeletedEmployeeIds();
+
         const empMap = new Map<string, Employee>();
-        currentEmps.forEach((e) => empMap.set(e.id || e.employeeId, e));
-        empData.forEach((e: any) => {
-          const { created_at, ...cleanEmp } = e;
-          empMap.set(cleanEmp.id || cleanEmp.employeeId, cleanEmp as Employee);
+        currentEmps.forEach((e) => {
+          if (!deletedIds.includes((e.id || '').toLowerCase()) && !deletedIds.includes((e.employeeId || '').toLowerCase())) {
+            empMap.set(e.id || e.employeeId, e);
+          }
         });
+
+        if (empData.length > 0) {
+          empData.forEach((e: any) => {
+            const { created_at, ...cleanEmp } = e;
+            const cleanId = (cleanEmp.id || '').toLowerCase();
+            const cleanCode = (cleanEmp.employeeId || '').toLowerCase();
+            if (!deletedIds.includes(cleanId) && !deletedIds.includes(cleanCode)) {
+              empMap.set(cleanEmp.id || cleanEmp.employeeId, cleanEmp as Employee);
+            }
+          });
+        }
+
         const mergedEmps = Array.from(empMap.values());
         if (JSON.stringify(currentEmps) !== JSON.stringify(mergedEmps)) {
           this.setItem(STORAGE_KEYS.EMPLOYEES, mergedEmps, false);
@@ -335,6 +350,20 @@ class DatabaseService {
     }
   }
 
+  public getDeletedEmployeeIds(): string[] {
+    return this.getItem<string[]>(STORAGE_KEYS.DELETED_EMPLOYEES, []);
+  }
+
+  public markEmployeeAsDeleted(idOrCode: string) {
+    if (!idOrCode) return;
+    const current = this.getDeletedEmployeeIds();
+    const clean = idOrCode.trim().toLowerCase();
+    if (!current.includes(clean)) {
+      current.push(clean);
+      this.setItem(STORAGE_KEYS.DELETED_EMPLOYEES, current, false);
+    }
+  }
+
   private initSeedData() {
     if (!localStorage.getItem(STORAGE_KEYS.SETTINGS)) {
       this.setItem(STORAGE_KEYS.SETTINGS, INITIAL_COMPANY_SETTINGS, false);
@@ -349,10 +378,19 @@ class DatabaseService {
       this.setItem(STORAGE_KEYS.USERS, INITIAL_USERS, false);
     }
     const storedEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
-    if (!storedEmps || storedEmps.length < INITIAL_EMPLOYEES.length) {
+    const deletedIds = this.getDeletedEmployeeIds();
+    const activeSeedEmps = INITIAL_EMPLOYEES.filter(
+      (e) => !deletedIds.includes((e.id || '').toLowerCase()) && !deletedIds.includes((e.employeeId || '').toLowerCase())
+    );
+
+    if (!storedEmps || storedEmps.length < activeSeedEmps.length) {
       const empMap = new Map<string, Employee>();
-      INITIAL_EMPLOYEES.forEach((e) => empMap.set(e.id || e.employeeId, e));
-      (storedEmps || []).forEach((e) => empMap.set(e.id || e.employeeId, e));
+      activeSeedEmps.forEach((e) => empMap.set(e.id || e.employeeId, e));
+      (storedEmps || []).forEach((e) => {
+        if (!deletedIds.includes((e.id || '').toLowerCase()) && !deletedIds.includes((e.employeeId || '').toLowerCase())) {
+          empMap.set(e.id || e.employeeId, e);
+        }
+      });
       const merged = Array.from(empMap.values());
       this.setItem(STORAGE_KEYS.EMPLOYEES, merged, false);
     }
@@ -579,11 +617,16 @@ class DatabaseService {
     const targetEmpCode = target?.employeeId || empId;
     const targetPin = target?.biometricPin;
 
-    // 1. Immediately remove from local memory & localStorage
+    // 1. Mark in deleted registry so sync/seed never resurrects it
+    this.markEmployeeAsDeleted(targetId);
+    this.markEmployeeAsDeleted(targetEmpCode);
+    if (targetPin) this.markEmployeeAsDeleted(targetPin);
+
+    // 2. Immediately remove from local memory & localStorage
     const filteredEmps = list.filter(
       (e) => e.id !== targetId && e.employeeId !== targetEmpCode && (!targetPin || e.biometricPin !== targetPin)
     );
-    this.setItem(STORAGE_KEYS.EMPLOYEES, filteredEmps);
+    this.setItem(STORAGE_KEYS.EMPLOYEES, filteredEmps, true);
 
     const users = this.getItem<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
     this.setItem(
@@ -617,7 +660,7 @@ class DatabaseService {
       payslips.filter((p) => p.employeeId !== targetEmpCode && p.employeeId !== targetId)
     );
 
-    // 2. Delete permanently from Supabase Cloud (await all calls!)
+    // 3. Delete permanently from Supabase Cloud
     try {
       await Promise.all([
         supabase.from('employees').delete().eq('id', targetId),
@@ -640,7 +683,7 @@ class DatabaseService {
       `Permanently deleted employee ${target?.fullName || empId} (${targetEmpCode})`
     );
 
-    this.syncFromSupabase();
+    this.notify();
   }
 
   // --- Attendance ---
