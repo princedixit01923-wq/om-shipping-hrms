@@ -525,7 +525,7 @@ class DatabaseService {
     } else {
       list.unshift(emp);
     }
-    this.setItem(STORAGE_KEYS.EMPLOYEES, list);
+    this.setItem(STORAGE_KEYS.EMPLOYEES, list, true);
     await this.pushToSupabase('employees', emp);
     const user = this.getCurrentUser();
     this.addAuditLog(
@@ -535,6 +535,7 @@ class DatabaseService {
       'Employee Directory',
       `Saved employee ${emp.fullName} (${emp.employeeId})`
     );
+    this.notify();
   }
 
   public async updateEmployeePhoto(empId: string, photoUrl: string) {
@@ -542,7 +543,7 @@ class DatabaseService {
     const emp = list.find((e) => e.id === empId || e.employeeId === empId);
     if (emp) {
       emp.profilePhoto = photoUrl;
-      this.setItem(STORAGE_KEYS.EMPLOYEES, list);
+      this.setItem(STORAGE_KEYS.EMPLOYEES, list, true);
       await this.pushToSupabase('employees', emp);
 
       const current = this.getCurrentUser();
@@ -550,6 +551,7 @@ class DatabaseService {
         current.avatarUrl = photoUrl;
         this.setCurrentUser(current);
       }
+      this.notify();
     }
   }
 
@@ -558,8 +560,9 @@ class DatabaseService {
     const emp = list.find((e) => e.id === empId || e.employeeId === empId);
     if (emp) {
       emp.status = emp.status === 'Active' ? 'Inactive' : 'Active';
-      this.setItem(STORAGE_KEYS.EMPLOYEES, list);
+      this.setItem(STORAGE_KEYS.EMPLOYEES, list, true);
       await this.pushToSupabase('employees', emp);
+      this.notify();
     }
   }
 
@@ -570,7 +573,20 @@ class DatabaseService {
     const targetId = target?.id || empId;
     const targetEmpCode = target?.employeeId || empId;
 
-    // 1. Delete permanently from Supabase Cloud backend database
+    // 1. Delete from local state immediately so UI updates
+    const filteredEmps = list.filter(
+      (e) => e.id !== targetId && e.employeeId !== targetEmpCode && (!target?.biometricPin || e.biometricPin !== target.biometricPin)
+    );
+    this.setItem(STORAGE_KEYS.EMPLOYEES, filteredEmps, true);
+
+    const users = this.getItem<User[]>(STORAGE_KEYS.USERS, INITIAL_USERS);
+    this.setItem(
+      STORAGE_KEYS.USERS,
+      users.filter((u) => u.id !== targetId && u.employeeId !== targetEmpCode),
+      true
+    );
+
+    // 2. Delete permanently from Supabase Cloud backend database
     try {
       await Promise.all([
         supabase.from('employees').delete().eq('id', targetId),
@@ -593,8 +609,7 @@ class DatabaseService {
       `Permanently deleted employee ${target?.fullName || empId} (${targetEmpCode})`
     );
 
-    // 2. Refresh state directly from Supabase Cloud backend
-    await this.syncFromSupabase(true);
+    this.notify();
   }
 
   // --- Attendance ---

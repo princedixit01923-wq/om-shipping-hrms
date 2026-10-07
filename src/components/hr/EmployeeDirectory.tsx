@@ -181,15 +181,15 @@ export const EmployeeDirectory: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleSaveEmployee = (e: React.FormEvent) => {
+  const handleSaveEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName || !email) {
       alert('First Name and Email ID are required.');
       return;
     }
 
-    const autoEmpId = customEmpId.trim() || `OSS/${employees.length + 10}/2026`;
-    const autoPin = biometricPin.trim() || `${1000 + employees.length + 1}`;
+    const autoEmpId = customEmpId.trim() || (editingEmp ? editingEmp.employeeId : `OSS/${employees.length + 10}/2026`);
+    const autoPin = biometricPin.trim() || (editingEmp ? editingEmp.biometricPin : `${1000 + employees.length + 1}`);
     const targetShift = shifts.find((s) => s.id === selectedShiftId) || shifts[0] || { id: 'sh-1', name: 'Shift A' };
     const full = `${title} ${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
 
@@ -241,8 +241,14 @@ export const EmployeeDirectory: React.FC = () => {
       aadhaarNumber: editingEmp?.aadhaarNumber || '1234-5678-9012'
     };
 
-    dbService.saveEmployee(updated);
+    await dbService.saveEmployee(updated);
+    reloadData();
     setShowModal(false);
+  };
+
+  const handleToggleStatus = async (emp: Employee) => {
+    await dbService.toggleEmployeeStatus(emp.id);
+    reloadData();
   };
 
   const handleDeleteEmployee = async (emp: Employee) => {
@@ -524,7 +530,14 @@ export const EmployeeDirectory: React.FC = () => {
                       </span>
                     </td>
                     <td className="p-3.5">
-                      <Badge status={e.status} />
+                      <button
+                        type="button"
+                        onClick={() => handleToggleStatus(e)}
+                        title="Click to toggle Active/Inactive status"
+                        className="hover:opacity-80 transition-opacity"
+                      >
+                        <Badge status={e.status} />
+                      </button>
                     </td>
                     <td className="p-3.5 text-right space-x-2">
                       <button
