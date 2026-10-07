@@ -299,15 +299,25 @@ class DatabaseService {
       const items = Array.isArray(payload) ? payload : [payload];
       let { error } = await supabase.from(tableName).upsert(items);
 
-      if (error && tableName === 'employees' && error.code === '23503') {
-        console.warn('Handling FK constraint fallback for employees upsert...');
-        const sanitizedItems = items.map((emp: any) => ({
-          ...emp,
-          shiftId: 'sh-1',
-          shiftName: emp.shiftName || 'Shift A (General Day)'
-        }));
-        const retryRes = await supabase.from(tableName).upsert(sanitizedItems);
-        error = retryRes.error;
+      if (error && tableName === 'employees') {
+        if (error.code === '23505') {
+          console.warn('Handling unique constraint fallback for employees upsert by email...');
+          const retryRes = await supabase.from(tableName).upsert(items, { onConflict: 'email' });
+          error = retryRes.error;
+          if (error) {
+            const retryResCode = await supabase.from(tableName).upsert(items, { onConflict: 'employeeId' });
+            error = retryResCode.error;
+          }
+        } else if (error.code === '23503') {
+          console.warn('Handling FK constraint fallback for employees upsert...');
+          const sanitizedItems = items.map((emp: any) => ({
+            ...emp,
+            shiftId: 'sh-1',
+            shiftName: emp.shiftName || 'Shift A (General Day)'
+          }));
+          const retryRes = await supabase.from(tableName).upsert(sanitizedItems);
+          error = retryRes.error;
+        }
       }
 
       if (error) {

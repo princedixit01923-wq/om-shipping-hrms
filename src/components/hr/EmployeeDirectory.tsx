@@ -29,6 +29,7 @@ export const EmployeeDirectory: React.FC = () => {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('All');
   const [showModal, setShowModal] = useState(false);
   const [editingEmp, setEditingEmp] = useState<Employee | null>(null);
+  const [successMsg, setSuccessMsg] = useState('');
 
   // Bulk Upload Modal State
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -188,13 +189,17 @@ export const EmployeeDirectory: React.FC = () => {
       return;
     }
 
-    const autoEmpId = customEmpId.trim() || (editingEmp ? editingEmp.employeeId : `OSS/${employees.length + 10}/2026`);
-    const autoPin = biometricPin.trim() || (editingEmp ? editingEmp.biometricPin : `${1000 + employees.length + 1}`);
+    const cleanEmail = email.trim().toLowerCase();
+    const existingByEmail = employees.find((emp) => emp.email.trim().toLowerCase() === cleanEmail);
+    const targetEmpId = editingEmp ? editingEmp.id : (existingByEmail ? existingByEmail.id : `emp-${Date.now()}`);
+
+    const autoEmpId = customEmpId.trim() || (editingEmp ? editingEmp.employeeId : (existingByEmail ? existingByEmail.employeeId : `OSS/${employees.length + 10}/2026`));
+    const autoPin = biometricPin.trim() || (editingEmp ? editingEmp.biometricPin : (existingByEmail ? existingByEmail.biometricPin : `${1000 + employees.length + 1}`));
     const targetShift = shifts.find((s) => s.id === selectedShiftId) || shifts[0] || { id: 'sh-1', name: 'Shift A' };
     const full = `${title} ${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
 
     const updated: Employee = {
-      id: editingEmp ? editingEmp.id : `emp-${Date.now()}`,
+      id: targetEmpId,
       title,
       firstName,
       middleName,
@@ -205,7 +210,7 @@ export const EmployeeDirectory: React.FC = () => {
       nationality,
       employeeId: autoEmpId,
       biometricPin: autoPin,
-      email,
+      email: email.trim(),
       portalPassword: portalPassword || 'OM0001',
       mobile,
       alternateMobile,
@@ -244,17 +249,23 @@ export const EmployeeDirectory: React.FC = () => {
     await dbService.saveEmployee(updated);
     reloadData();
     setShowModal(false);
+    setSuccessMsg(`Employee "${full}" (${autoEmpId}) saved & synchronized successfully across all devices!`);
+    setTimeout(() => setSuccessMsg(''), 5000);
   };
 
   const handleToggleStatus = async (emp: Employee) => {
     await dbService.toggleEmployeeStatus(emp.id);
     reloadData();
+    setSuccessMsg(`Status for "${emp.fullName}" updated to ${emp.status === 'Active' ? 'Inactive' : 'Active'}.`);
+    setTimeout(() => setSuccessMsg(''), 4000);
   };
 
   const handleDeleteEmployee = async (emp: Employee) => {
     if (window.confirm(`Are you sure you want to delete ${emp.fullName} (${emp.employeeId}) permanently?`)) {
       await dbService.deleteEmployee(emp.id);
       reloadData();
+      setSuccessMsg(`Employee "${emp.fullName}" (${emp.employeeId}) deleted successfully.`);
+      setTimeout(() => setSuccessMsg(''), 5000);
     }
   };
 
@@ -427,6 +438,19 @@ export const EmployeeDirectory: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Success Notification Alert Banner */}
+      {successMsg && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-2xl flex items-center justify-between shadow-xs animate-fade-in">
+          <div className="flex items-center gap-2">
+            <Check className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+          <button onClick={() => setSuccessMsg('')} className="p-1 text-emerald-600 hover:text-emerald-800 rounded-lg">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Filter Toolbar */}
       <div className="card-3d bg-white p-4 rounded-3xl border border-slate-200/80 grid grid-cols-1 md:grid-cols-4 gap-3">
