@@ -131,21 +131,14 @@ class DatabaseService {
         }
       }
 
-      // 2. Sync Employees directly from backend (filtering out deleted registry items)
+      // 2. Sync Employees directly from backend (Supabase as Authoritative Single Source of Truth)
       const { data: empData, error: empErr } = await supabase.from('employees').select('*');
-      if (!empErr && empData && empData.length > 0) {
+      if (!empErr && empData !== null) {
         this.isCloudConnected = true;
-        const deletedIds = this.getDeletedEmployeeIds();
-        const cleanedEmps = empData
-          .filter((e: any) => {
-            const cleanId = (e.id || '').toLowerCase();
-            const cleanCode = (e.employeeId || '').toLowerCase();
-            return !deletedIds.includes(cleanId) && !deletedIds.includes(cleanCode);
-          })
-          .map((e: any) => {
-            const { created_at, ...clean } = e;
-            return clean as Employee;
-          });
+        const cleanedEmps = empData.map((e: any) => {
+          const { created_at, ...clean } = e;
+          return clean as Employee;
+        });
         const currentEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
         if (JSON.stringify(currentEmps) !== JSON.stringify(cleanedEmps)) {
           this.setItem(STORAGE_KEYS.EMPLOYEES, cleanedEmps, false);
@@ -387,9 +380,6 @@ class DatabaseService {
     if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
       this.setItem(STORAGE_KEYS.USERS, INITIAL_USERS, false);
     }
-    if (!localStorage.getItem(STORAGE_KEYS.EMPLOYEES)) {
-      this.setItem(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES, false);
-    }
     if (!localStorage.getItem(STORAGE_KEYS.ATTENDANCE)) {
       this.setItem(STORAGE_KEYS.ATTENDANCE, INITIAL_ATTENDANCE, false);
     }
@@ -543,7 +533,7 @@ class DatabaseService {
 
   // --- Employees ---
   public getEmployees(): Employee[] {
-    return this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, INITIAL_EMPLOYEES);
+    return this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
   }
 
   public getEmployeeById(idOrEmpId: string): Employee | undefined {
@@ -560,10 +550,6 @@ class DatabaseService {
   }
 
   public async saveEmployee(emp: Employee) {
-    this.unmarkEmployeeAsDeleted(emp.id);
-    this.unmarkEmployeeAsDeleted(emp.employeeId);
-    if (emp.biometricPin) this.unmarkEmployeeAsDeleted(emp.biometricPin);
-
     const list = this.getEmployees();
     const idx = list.findIndex((e) => e.id === emp.id || e.employeeId === emp.employeeId);
     if (idx >= 0) {
@@ -574,7 +560,7 @@ class DatabaseService {
     this.setItem(STORAGE_KEYS.EMPLOYEES, list, true);
 
     // Push to Supabase Cloud asynchronously without blocking UI
-    this.pushToSupabase('employees', emp);
+    await this.pushToSupabase('employees', emp);
 
     const user = this.getCurrentUser();
     this.addAuditLog(
@@ -623,12 +609,7 @@ class DatabaseService {
     const targetEmpCode = target?.employeeId || empId;
     const targetPin = target?.biometricPin;
 
-    // 1. Mark in deleted registry so sync never resurrects it
-    this.markEmployeeAsDeleted(targetId);
-    this.markEmployeeAsDeleted(targetEmpCode);
-    if (targetPin) this.markEmployeeAsDeleted(targetPin);
-
-    // 2. Delete from local state immediately (0ms latency UI update)
+    // 1. Delete from local state immediately (0ms latency UI update)
     const filteredEmps = list.filter(
       (e) => e.id !== targetId && e.employeeId !== targetEmpCode && (!targetPin || e.biometricPin !== targetPin)
     );
@@ -650,17 +631,19 @@ class DatabaseService {
       true
     );
 
-    // 3. Issue permanent delete queries to Supabase Cloud backend in background
-    Promise.all([
-      supabase.from('employees').delete().eq('id', targetId),
-      supabase.from('employees').delete().eq('employeeId', targetEmpCode),
-      supabase.from('attendance_records').delete().eq('employeeId', targetEmpCode),
-      supabase.from('leave_requests').delete().eq('employeeId', targetEmpCode),
-      supabase.from('time_corrections').delete().eq('employeeId', targetEmpCode),
-      supabase.from('payslips').delete().eq('employeeId', targetEmpCode)
-    ]).catch((err) => {
+    // 2. Issue permanent delete queries to Supabase Cloud backend
+    try {
+      await Promise.all([
+        supabase.from('employees').delete().eq('id', targetId),
+        supabase.from('employees').delete().eq('employeeId', targetEmpCode),
+        supabase.from('attendance_records').delete().eq('employeeId', targetEmpCode),
+        supabase.from('leave_requests').delete().eq('employeeId', targetEmpCode),
+        supabase.from('time_corrections').delete().eq('employeeId', targetEmpCode),
+        supabase.from('payslips').delete().eq('employeeId', targetEmpCode)
+      ]);
+    } catch (err) {
       console.warn('Supabase delete employee notice:', err);
-    });
+    }
 
     const user = this.getCurrentUser();
     this.addAuditLog(
@@ -671,7 +654,8 @@ class DatabaseService {
       `Permanently deleted employee ${target?.fullName || empId} (${targetEmpCode})`
     );
 
-    this.notify();
+    // Re-sync from Supabase to confirm state
+    this.syncFromSupabase(true);
   }
 
   // --- Attendance ---
