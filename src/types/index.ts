@@ -248,17 +248,6 @@ export interface Announcement {
   publishedAt: string;
 }
 
-export interface AuditLog {
-  id: string;
-  userName: string;
-  userRole: string;
-  action: string;
-  module: string;
-  ipAddress: string;
-  timestamp: string;
-  details: string;
-}
-
 export interface CompanySettings {
   companyName: string;
   tagline: string;
@@ -273,5 +262,5 @@ export interface CompanySettings {
   requireLocationForPunch: boolean;
   gracePeriodMinutes: number;
   lateMarkAfterMinutes: number;
-  auditLoggingEnabled: boolean;
 }
+

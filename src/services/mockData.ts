@@ -10,7 +10,6 @@ import {
   Payslip,
   PayrollRun,
   Announcement,
-  AuditLog,
   CompanySettings
 } from '../types';
 
@@ -32,8 +31,7 @@ export const INITIAL_COMPANY_SETTINGS: CompanySettings = {
   currencySymbol: '₹',
   requireLocationForPunch: true,
   gracePeriodMinutes: 60,
-  lateMarkAfterMinutes: 120,
-  auditLoggingEnabled: true
+  lateMarkAfterMinutes: 120
 };
 
 export const INITIAL_PRIMARY_OFFICE: OfficeLocation = {
@@ -189,15 +187,4 @@ export const INITIAL_ANNOUNCEMENTS: Announcement[] = [
   }
 ];
 
-export const INITIAL_AUDIT_LOGS: AuditLog[] = [
-  {
-    id: 'aud-1',
-    userName: 'HR Administrator',
-    userRole: 'HR Administrator',
-    action: 'System Initialization',
-    module: 'Authentication',
-    ipAddress: '115.240.90.12',
-    timestamp: '2026-09-21 09:00:00',
-    details: 'OM Safety Services LLP HRMS system initialized'
-  }
-];
+

@@ -130,15 +130,6 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({ settings: init
               />
               Require Verified GPS Geolocation Capture for All Attendance Punches
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.auditLoggingEnabled}
-                onChange={(e) => setSettings({ ...settings, auditLoggingEnabled: e.target.checked })}
-                className="rounded border-slate-300 text-[#1d4ed8]"
-              />
-              Enable Immutable Security Audit Logging
-            </label>
           </div>
         </div>
 

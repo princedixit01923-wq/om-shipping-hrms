@@ -26,7 +26,6 @@ import { PayrollProcessor } from './components/hr/PayrollProcessor';
 import { ShiftManager } from './components/hr/ShiftManager';
 import { AnnouncementManager } from './components/hr/AnnouncementManager';
 import { ReportsViewer } from './components/hr/ReportsViewer';
-import { AuditLogsTable } from './components/hr/AuditLogsTable';
 import { SettingsManager } from './components/hr/SettingsManager';
 import { HolidayManager } from './components/hr/HolidayManager';
 
@@ -53,7 +52,6 @@ const TAB_TO_PATH: Record<string, { path: string; title: string }> = {
   'hr-holidays': { path: '/hr-holidays', title: 'Holiday Manager - OM Safety Services LLP' },
   'hr-shifts': { path: '/hr-shifts', title: 'Shift Management - OM Safety Services LLP' },
   'hr-announcements': { path: '/hr-announcements', title: 'Announcements - OM Safety Services LLP' },
-  'hr-audit': { path: '/hr-audit', title: 'Security Audit Logs - OM Safety Services LLP' },
   'hr-settings': { path: '/hr-settings', title: 'System Settings - OM Safety Services LLP' }
 };
 
@@ -82,7 +80,6 @@ const PATH_TO_TAB: Record<string, string> = {
   '/hr-holidays': 'hr-holidays',
   '/hr-shifts': 'hr-shifts',
   '/hr-announcements': 'hr-announcements',
-  '/hr-audit': 'hr-audit',
   '/hr-settings': 'hr-settings'
 };
 
@@ -305,7 +302,6 @@ export function App() {
               {activeTab === 'hr-holidays' && <HolidayManager />}
               {activeTab === 'hr-shifts' && <ShiftManager />}
               {activeTab === 'hr-announcements' && <AnnouncementManager />}
-              {activeTab === 'hr-audit' && <AuditLogsTable />}
               {activeTab === 'hr-settings' && <SettingsManager settings={settings} officeLocation={officeLocation} />}
             </ErrorBoundary>
           </main>

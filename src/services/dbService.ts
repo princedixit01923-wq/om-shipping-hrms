@@ -10,7 +10,6 @@ import {
   Payslip,
   PayrollRun,
   Announcement,
-  AuditLog,
   CompanySettings
 } from '../types';
 
@@ -26,8 +25,7 @@ import {
   INITIAL_HOLIDAYS,
   INITIAL_PAYSLIPS,
   INITIAL_PAYROLL_RUNS,
-  INITIAL_ANNOUNCEMENTS,
-  INITIAL_AUDIT_LOGS
+  INITIAL_ANNOUNCEMENTS
 } from './mockData';
 
 import { supabase } from './supabaseClient';
@@ -47,7 +45,6 @@ const STORAGE_KEYS = {
   PAYSLIPS: 'om_hrms_payslips',
   PAYROLL_RUNS: 'om_hrms_payroll_runs',
   ANNOUNCEMENTS: 'om_hrms_announcements',
-  AUDIT_LOGS: 'om_hrms_audit_logs',
   SESSION_USER: 'om_hrms_session_user',
   DELETED_EMPLOYEES: 'om_hrms_deleted_employees'
 };
@@ -70,7 +67,6 @@ class DatabaseService {
     payslips: 15 * 60 * 1000,         // 15 min (slow)
     employees: 5 * 60 * 1000,         // 5 min
     announcements: 5 * 60 * 1000,     // 5 min
-    audit_logs: 5 * 60 * 1000,        // 5 min
     leave_requests: 2 * 60 * 1000,    // 2 min
     time_corrections: 2 * 60 * 1000,  // 2 min
     attendance_records: 2 * 60 * 1000 // 2 min
@@ -332,29 +328,11 @@ class DatabaseService {
           break;
         }
 
-        case 'audit_logs': {
-          const { data, error } = await supabase
-            .from('audit_logs')
-            .select('id, "userName", "userRole", action, module, "ipAddress", timestamp, details')
-            .order('timestamp', { ascending: false })
-            .limit(50);
-          if (!error && data) {
-            this.isCloudConnected = true;
-            this.markTableFresh('audit_logs');
-            const current = this.getItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, []);
-            if (JSON.stringify(current) !== JSON.stringify(data)) {
-              this.setItem(STORAGE_KEYS.AUDIT_LOGS, data, false);
-              hasChanged = true;
-            }
-          }
-          break;
-        }
-
         case 'company_settings': {
           const { data, error } = await supabase
             .from('company_settings')
             .select(
-              'id, "companyName", tagline, "logoUrl", address, phone, email, website, "workingDaysPerMonth", "currencySymbol", "requireLocationForPunch", "gracePeriodMinutes", "lateMarkAfterMinutes", "auditLoggingEnabled"'
+              'id, "companyName", tagline, "logoUrl", address, phone, email, website, "workingDaysPerMonth", "currencySymbol", "requireLocationForPunch", "gracePeriodMinutes", "lateMarkAfterMinutes"'
             )
             .limit(1);
           if (!error && data && data.length > 0) {
@@ -407,8 +385,7 @@ class DatabaseService {
         'time_corrections',
         'announcements',
         'payroll_runs',
-        'payslips',
-        'audit_logs'
+        'payslips'
       ];
       for (const table of tables) {
         if (this.isTableStale(table)) {
@@ -438,8 +415,7 @@ class DatabaseService {
         'time_corrections',
         'announcements',
         'payroll_runs',
-        'payslips',
-        'audit_logs'
+        'payslips'
       ];
       for (const table of tables) {
         await this.syncTable(table, forceNotify);
@@ -597,9 +573,8 @@ class DatabaseService {
     if (!localStorage.getItem(STORAGE_KEYS.ANNOUNCEMENTS)) {
       this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS, false);
     }
-    if (!localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS)) {
-      this.setItem(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS, false);
-    }
+    // Clean up legacy audit logs from localStorage if present
+    localStorage.removeItem('om_hrms_audit_logs');
   }
 
   // --- Auth Session ---
@@ -616,7 +591,6 @@ class DatabaseService {
     try {
       if (user) {
         sessionStorage.setItem(STORAGE_KEYS.SESSION_USER, JSON.stringify(user));
-        this.addAuditLog(user.name, user.role, 'Session Login', 'Authentication', `User logged in as ${user.role}`);
       } else {
         sessionStorage.removeItem(STORAGE_KEYS.SESSION_USER);
       }
@@ -712,11 +686,8 @@ class DatabaseService {
       currencySymbol: settings.currencySymbol,
       requireLocationForPunch: settings.requireLocationForPunch,
       gracePeriodMinutes: settings.gracePeriodMinutes,
-      lateMarkAfterMinutes: settings.lateMarkAfterMinutes,
-      auditLoggingEnabled: settings.auditLoggingEnabled
+      lateMarkAfterMinutes: settings.lateMarkAfterMinutes
     });
-    const user = this.getCurrentUser();
-    this.addAuditLog(user?.name || 'HR Administrator', user?.role || 'HR Administrator', 'Updated Settings', 'Settings', 'Updated company system settings');
   }
 
   public getOfficeLocation(): OfficeLocation {
@@ -778,15 +749,6 @@ class DatabaseService {
     // Push to Supabase Cloud asynchronously without blocking UI
     await this.pushToSupabase('employees', emp);
     this.markTableFresh('employees');
-
-    const user = this.getCurrentUser();
-    this.addAuditLog(
-      user?.name || 'HR Administrator',
-      user?.role || 'HR Administrator',
-      idx >= 0 ? 'Edited Employee' : 'Added Employee',
-      'Employee Directory',
-      `Saved employee ${emp.fullName} (${emp.employeeId})`
-    );
     this.notify();
   }
 
@@ -873,15 +835,6 @@ class DatabaseService {
       console.warn('Supabase delete employee notice:', err);
     }
 
-    const user = this.getCurrentUser();
-    this.addAuditLog(
-      user?.name || 'HR Administrator',
-      user?.role || 'HR Administrator',
-      'Permanently Deleted Employee',
-      'Employee Directory',
-      `Permanently deleted employee ${target?.fullName || empId} (${targetEmpCode})`
-    );
-
     // Re-sync only the employees table from Supabase to confirm state
     this.syncTable('employees', true);
   }
@@ -921,13 +874,6 @@ class DatabaseService {
     }
     this.setItem(STORAGE_KEYS.ATTENDANCE, list);
     await this.pushToSupabase('attendance_records', record);
-    this.addAuditLog(
-      record.employeeName,
-      'Employee',
-      'GPS Punch In',
-      'Attendance',
-      `Punched In at ${record.punchIn?.address || 'Live GPS Location'}`
-    );
   }
 
   public async recordPunchOut(employeeId: string, punchOutLocation: AttendanceRecord['punchOut']) {
@@ -947,13 +893,6 @@ class DatabaseService {
 
       this.setItem(STORAGE_KEYS.ATTENDANCE, list);
       await this.pushToSupabase('attendance_records', rec);
-      this.addAuditLog(
-        rec.employeeName,
-        'Employee',
-        'GPS Punch Out',
-        'Attendance',
-        `Punched Out at ${punchOutLocation?.address || 'Live GPS Location'} (${hours.toFixed(2)} hrs)`
-      );
     }
   }
 
@@ -967,13 +906,6 @@ class DatabaseService {
     list.unshift(req);
     this.setItem(STORAGE_KEYS.LEAVES, list);
     await this.pushToSupabase('leave_requests', req);
-    this.addAuditLog(
-      req.employeeName,
-      'Employee',
-      'Submitted Leave Request',
-      'Leave Management',
-      `${req.leaveType} from ${req.fromDate} to ${req.toDate}`
-    );
   }
 
   public async updateLeaveStatus(id: string, status: 'Approved' | 'Rejected', comment: string, reviewerName: string) {
@@ -986,13 +918,6 @@ class DatabaseService {
       req.reviewedAt = new Date().toISOString();
       this.setItem(STORAGE_KEYS.LEAVES, list);
       await this.pushToSupabase('leave_requests', req);
-      this.addAuditLog(
-        reviewerName,
-        'HR Administrator',
-        `${status} Leave Request`,
-        'Leave Management',
-        `Leave ID ${id} for ${req.employeeName}`
-      );
     }
   }
 
@@ -1043,19 +968,10 @@ class DatabaseService {
     else list.push(holiday);
     this.setItem(STORAGE_KEYS.HOLIDAYS, list);
     await this.pushToSupabase('holidays', holiday);
-    const user = this.getCurrentUser();
-    this.addAuditLog(
-      user?.name || 'HR Administrator',
-      user?.role || 'HR Administrator',
-      'Saved Holiday',
-      'Holiday Calendar',
-      `Saved holiday: ${holiday.name} (${holiday.date})`
-    );
   }
 
   public async deleteHoliday(holidayId: string) {
     const list = this.getHolidays();
-    const target = list.find((h) => h.id === holidayId);
     const filtered = list.filter((h) => h.id !== holidayId);
     this.setItem(STORAGE_KEYS.HOLIDAYS, filtered);
 
@@ -1064,15 +980,6 @@ class DatabaseService {
     } catch (err) {
       console.warn('Error deleting holiday from Supabase:', err);
     }
-
-    const user = this.getCurrentUser();
-    this.addAuditLog(
-      user?.name || 'HR Administrator',
-      user?.role || 'HR Administrator',
-      'Deleted Holiday',
-      'Holiday Calendar',
-      `Deleted holiday: ${target?.name || holidayId}`
-    );
 
     this.syncTable('holidays', true);
   }
@@ -1193,13 +1100,6 @@ class DatabaseService {
     this.setItem(STORAGE_KEYS.PAYROLL_RUNS, runs);
     await this.pushToSupabase('payroll_runs', run);
 
-    this.addAuditLog(
-      processedBy,
-      'HR Administrator',
-      'Processed Monthly Payroll',
-      'Payroll',
-      `Generated payroll for ${monthName} ${yearStr} (${employees.length} staff)`
-    );
     return run;
   }
 
@@ -1219,7 +1119,6 @@ class DatabaseService {
 
   public async deleteShift(shiftId: string) {
     const list = this.getShifts();
-    const target = list.find((s) => s.id === shiftId);
     const filtered = list.filter((s) => s.id !== shiftId);
     this.setItem(STORAGE_KEYS.SHIFTS, filtered);
 
@@ -1229,19 +1128,10 @@ class DatabaseService {
       console.warn('Error deleting shift from Supabase:', err);
     }
 
-    const user = this.getCurrentUser();
-    this.addAuditLog(
-      user?.name || 'HR Administrator',
-      user?.role || 'HR Administrator',
-      'Deleted Shift',
-      'Shift Management',
-      `Deleted shift: ${target?.name || shiftId}`
-    );
-
     this.syncTable('shifts', true);
   }
 
-  // --- Announcements & Audit Logs ---
+  // --- Announcements ---
   public getAnnouncements(): Announcement[] {
     return this.getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, INITIAL_ANNOUNCEMENTS);
   }
@@ -1255,7 +1145,6 @@ class DatabaseService {
 
   public async deleteAnnouncement(announcementId: string) {
     const list = this.getAnnouncements();
-    const target = list.find((a) => a.id === announcementId);
     const filtered = list.filter((a) => a.id !== announcementId);
     this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, filtered);
 
@@ -1265,37 +1154,7 @@ class DatabaseService {
       console.warn('Error deleting announcement from Supabase:', err);
     }
 
-    const user = this.getCurrentUser();
-    this.addAuditLog(
-      user?.name || 'HR Administrator',
-      user?.role || 'HR Administrator',
-      'Deleted Announcement',
-      'Announcements',
-      `Deleted announcement: ${target?.title || announcementId}`
-    );
-
     this.syncTable('announcements', true);
-  }
-
-  public getAuditLogs(): AuditLog[] {
-    return this.getItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, INITIAL_AUDIT_LOGS);
-  }
-
-  public async addAuditLog(userName: string, userRole: string, action: string, module: string, details: string) {
-    const logs = this.getAuditLogs();
-    const newLog: AuditLog = {
-      id: `aud-${Date.now()}`,
-      userName,
-      userRole,
-      action,
-      module,
-      ipAddress: '115.240.90.12',
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      details
-    };
-    logs.unshift(newLog);
-    this.setItem(STORAGE_KEYS.AUDIT_LOGS, logs);
-    await this.pushToSupabase('audit_logs', newLog);
   }
 }
 

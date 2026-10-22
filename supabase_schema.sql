@@ -219,19 +219,7 @@ CREATE TABLE IF NOT EXISTS announcements (
   "publishedAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 2.10 AUDIT LOGS TABLE
-CREATE TABLE IF NOT EXISTS audit_logs (
-  id TEXT PRIMARY KEY,
-  "userName" TEXT NOT NULL,
-  "userRole" TEXT NOT NULL,
-  action TEXT NOT NULL,
-  module TEXT NOT NULL,
-  "ipAddress" TEXT DEFAULT '127.0.0.1',
-  timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  details TEXT
-);
-
--- 2.11 COMPANY SETTINGS TABLE
+-- 2.10 COMPANY SETTINGS TABLE
 CREATE TABLE IF NOT EXISTS company_settings (
   id INTEGER PRIMARY KEY DEFAULT 1,
   "companyName" TEXT DEFAULT 'OM Safety Services LLP',
@@ -245,8 +233,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
   "currencySymbol" TEXT DEFAULT '₹',
   "requireLocationForPunch" BOOLEAN DEFAULT true,
   "gracePeriodMinutes" INTEGER DEFAULT 15,
-  "lateMarkAfterMinutes" INTEGER DEFAULT 15,
-  "auditLoggingEnabled" BOOLEAN DEFAULT true
+  "lateMarkAfterMinutes" INTEGER DEFAULT 15
 );
 
 -- ====================================================================
@@ -264,7 +251,6 @@ ALTER TABLE holidays DISABLE ROW LEVEL SECURITY;
 ALTER TABLE payroll_runs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE payslips DISABLE ROW LEVEL SECURITY;
 ALTER TABLE announcements DISABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_logs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE company_settings DISABLE ROW LEVEL SECURITY;
 
 -- 3.2 Grant full schema access to anon, authenticated and service_role
@@ -289,7 +275,7 @@ DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
     BEGIN
-      ALTER PUBLICATION supabase_realtime ADD TABLE shifts, employees, attendance_records, leave_requests, time_corrections, holidays, payroll_runs, payslips, announcements, audit_logs, company_settings;
+      ALTER PUBLICATION supabase_realtime ADD TABLE shifts, employees, attendance_records, leave_requests, time_corrections, holidays, payroll_runs, payslips, announcements, company_settings;
     EXCEPTION WHEN OTHERS THEN
       NULL;
     END;

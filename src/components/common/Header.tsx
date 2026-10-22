@@ -40,14 +40,14 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   useEffect(() => {
-    const notifs = dbService.getAuditLogs().slice(0, 5).map((l, i) => ({
+    const notifs = dbService.getAnnouncements().slice(0, 5).map((a, i) => ({
       id: `notif-${i}`,
       userId: user.id,
-      title: l.action,
-      message: `${l.details} by ${l.userName}`,
-      type: 'System' as const,
+      title: a.title,
+      message: a.description,
+      type: 'Announcement' as const,
       isRead: false,
-      createdAt: l.timestamp
+      createdAt: a.publishedAt
     }));
     setNotifications(notifs);
   }, [user.id]);

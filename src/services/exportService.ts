@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
-import { AttendanceRecord, Employee, Payslip, AuditLog } from '../types';
+import { AttendanceRecord, Employee, Payslip } from '../types';
 
 /**
  * Robust cross-browser workbook saver that works seamlessly on desktop and smartphones
@@ -160,29 +160,6 @@ export function exportEmployeesToCSV(employees: Employee[], fileName = 'Employee
   saveAs(blob, fileName);
 }
 
-export function exportAuditLogsToExcel(logs: AuditLog[], fileName = 'Audit_Logs.xlsx') {
-  if (!logs || logs.length === 0) {
-    alert('No audit logs available to export.');
-    return;
-  }
-
-  const data = logs.map((l) => ({
-    ID: l.id,
-    User: l.userName,
-    Role: l.userRole,
-    Action: l.action,
-    Module: l.module,
-    IP: l.ipAddress,
-    Timestamp: l.timestamp,
-    Details: l.details
-  }));
-
-  const worksheet = XLSX.utils.json_to_sheet(data);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Audit Logs');
-
-  saveWorkbook(workbook, fileName);
-}
 
 /**
  * Download standardized Employee Bulk Import Format (Excel .xlsx format)

@@ -12,7 +12,6 @@ import {
   DollarSign,
   Megaphone,
   BarChart3,
-  ShieldAlert,
   UserCheck,
   Settings,
   X
@@ -77,7 +76,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'hr-holidays', label: 'Holiday Calendar', icon: CalendarDays },
     { id: 'hr-shifts', label: 'Shift Schedules', icon: Sliders },
     { id: 'hr-announcements', label: 'Announcements', icon: Megaphone },
-    { id: 'hr-audit', label: 'Security Audit Logs', icon: ShieldAlert },
     { id: 'hr-settings', label: 'System Settings', icon: Settings }
   ];
 
