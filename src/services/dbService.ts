@@ -32,6 +32,7 @@ import {
 
 import { supabase } from './supabaseClient';
 import { convertNumberToWords } from '../utils/numberToWords';
+import { compressImage } from '../utils/imageCompressor';
 
 const STORAGE_KEYS = {
   SETTINGS: 'om_hrms_settings',
@@ -57,6 +58,23 @@ class DatabaseService {
   private listeners: Set<EventCallback> = new Set();
   public isCloudConnected: boolean = false;
   private isSyncing: boolean = false;
+  private tableSyncTimestamps: Map<string, number> = new Map();
+  private lastFocusSyncTime: number = 0;
+
+  // Granular TTL cache durations per table in milliseconds to prevent egress burn
+  private readonly TABLE_TTL: Record<string, number> = {
+    shifts: 30 * 60 * 1000,           // 30 min (static)
+    company_settings: 30 * 60 * 1000, // 30 min (static)
+    holidays: 30 * 60 * 1000,         // 30 min (static)
+    payroll_runs: 15 * 60 * 1000,     // 15 min (slow)
+    payslips: 15 * 60 * 1000,         // 15 min (slow)
+    employees: 5 * 60 * 1000,         // 5 min
+    announcements: 5 * 60 * 1000,     // 5 min
+    audit_logs: 5 * 60 * 1000,        // 5 min
+    leave_requests: 2 * 60 * 1000,    // 2 min
+    time_corrections: 2 * 60 * 1000,  // 2 min
+    attendance_records: 2 * 60 * 1000 // 2 min
+  };
 
   constructor() {
     this.initSeedData();
@@ -75,8 +93,19 @@ class DatabaseService {
     this.listeners.forEach((cb) => cb());
   }
 
+  public isTableStale(table: string): boolean {
+    const lastSync = this.tableSyncTimestamps.get(table) || 0;
+    const ttl = this.TABLE_TTL[table] || 5 * 60 * 1000;
+    return Date.now() - lastSync > ttl;
+  }
+
+  public markTableFresh(table: string): void {
+    this.tableSyncTimestamps.set(table, Date.now());
+  }
+
   /**
-   * Set up real-time websocket and focus event listeners for instant cross-device sync
+   * Set up real-time websocket and focus event listeners for instant cross-device sync.
+   * High-efficiency: list changes by table name and only refresh the affected entity.
    */
   private initRealtimeAndSyncListeners() {
     // 1. Supabase Postgres Realtime Changes Listener
@@ -84,197 +113,338 @@ class DatabaseService {
       supabase
         .channel('public:realtime_hrms')
         .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
-          console.log('⚡ Real-time DB Event Received:', payload.eventType, payload.table);
-          this.syncFromSupabase();
+          const table = payload.table;
+          if (table) {
+            console.log('⚡ Real-time DB Event Received for table:', table, payload.eventType);
+            this.syncTable(table, true);
+          }
         })
         .subscribe();
     } catch (e) {
       console.warn('Supabase Realtime subscription notice:', e);
     }
 
-    // 2. Window Focus & Visibility Change Sync
+    // 2. Window Focus & Visibility Change Sync (throttled to 60s cooldown, only stale tables)
     if (typeof window !== 'undefined') {
-      window.addEventListener('focus', () => {
-        this.syncFromSupabase();
-      });
+      const handleFocusSync = () => {
+        const now = Date.now();
+        if (now - this.lastFocusSyncTime > 60000) {
+          this.lastFocusSyncTime = now;
+          this.syncStaleTables();
+        }
+      };
+
+      window.addEventListener('focus', handleFocusSync);
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-          this.syncFromSupabase();
+          handleFocusSync();
         }
       });
-      // 3. Fast Periodic Pulse every 3 seconds for instant multi-device sync
+
+      // 3. Relaxed Heartbeat every 5 minutes (300s) to refresh stale background data without egress waste
       setInterval(() => {
-        this.syncFromSupabase();
-      }, 3000);
+        this.syncStaleTables();
+      }, 300000);
     }
   }
 
   /**
-   * Background Supabase Cloud Real-time Fetch & Synchronization for All Entities
-   * Supabase Cloud database is the authoritative single source of truth.
+   * Granular, table-specific synchronization with explicit column projection
+   * and result limits to minimize network payload and avoid select('*') full dumps.
    */
-  public async syncFromSupabase(forceNotify: boolean = false) {
-    if (this.isSyncing) return;
-    this.isSyncing = true;
+  public async syncTable(tableName: string, force: boolean = false): Promise<boolean> {
+    if (!force && !this.isTableStale(tableName)) {
+      return false;
+    }
 
     try {
-      let hasChanged = forceNotify;
+      let hasChanged = false;
 
-      // 1. Sync Shifts directly from backend
-      const { data: shiftData, error: shiftErr } = await supabase.from('shifts').select('*');
-      if (!shiftErr && shiftData) {
-        this.isCloudConnected = true;
-        const currentShifts = this.getItem<Shift[]>(STORAGE_KEYS.SHIFTS, []);
-        if (JSON.stringify(currentShifts) !== JSON.stringify(shiftData)) {
-          this.setItem(STORAGE_KEYS.SHIFTS, shiftData, false);
-          hasChanged = true;
+      switch (tableName) {
+        case 'shifts': {
+          const { data, error } = await supabase
+            .from('shifts')
+            .select('id, name, "startTime", "endTime", "gracePeriodMins", "breakDurationMins", "workingHours", "weeklyOff", "isOvernight"');
+          if (!error && data) {
+            this.isCloudConnected = true;
+            this.markTableFresh('shifts');
+            const current = this.getItem<Shift[]>(STORAGE_KEYS.SHIFTS, []);
+            if (JSON.stringify(current) !== JSON.stringify(data)) {
+              this.setItem(STORAGE_KEYS.SHIFTS, data, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 2. Sync Employees directly from backend (Supabase as Authoritative Single Source of Truth)
-      const { data: empData, error: empErr } = await supabase.from('employees').select('*');
-      if (!empErr && empData !== null) {
-        this.isCloudConnected = true;
-        const cleanedEmps = empData.map((e: any) => {
-          const { created_at, ...clean } = e;
-          return clean as Employee;
-        });
-        const currentEmps = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
-        if (JSON.stringify(currentEmps) !== JSON.stringify(cleanedEmps)) {
-          this.setItem(STORAGE_KEYS.EMPLOYEES, cleanedEmps, true);
-          hasChanged = true;
+        case 'employees': {
+          const { data, error } = await supabase
+            .from('employees')
+            .select(
+              'id, title, "firstName", "middleName", "lastName", "fullName", "motherFullName", "fatherFullName", nationality, "employeeId", "biometricPin", email, "portalPassword", mobile, "alternateMobile", gender, dob, "bloodGroup", "maritalStatus", "spouseName", "joiningDate", "profilePhoto", address, status, "departmentName", "designationName", "staffCategory", "workLocation", "shiftId", "shiftName", "baseSalary", hra, conveyance, "specialAllowance", "otherAllowance", "pfDeduction", "esiDeduction", "tdsDeduction", "advanceDeduction", "otherDeduction", "bankName", "accountNumber", "ifscCode", "panNumber", "aadhaarNumber"'
+            );
+          if (!error && data !== null) {
+            this.isCloudConnected = true;
+            this.markTableFresh('employees');
+            const cleanedEmps = data.map((e: any) => {
+              const { created_at, ...clean } = e;
+              return clean as Employee;
+            });
+            const current = this.getItem<Employee[]>(STORAGE_KEYS.EMPLOYEES, []);
+            if (JSON.stringify(current) !== JSON.stringify(cleanedEmps)) {
+              this.setItem(STORAGE_KEYS.EMPLOYEES, cleanedEmps, true);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 3. Sync Attendance Records
-      const { data: attData, error: attErr } = await supabase
-        .from('attendance_records')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (!attErr && attData) {
-        const currentAtt = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
-        if (JSON.stringify(currentAtt) !== JSON.stringify(attData)) {
-          this.setItem(STORAGE_KEYS.ATTENDANCE, attData, false);
-          hasChanged = true;
+        case 'attendance_records': {
+          const { data, error } = await supabase
+            .from('attendance_records')
+            .select(
+              'id, "employeeId", "employeeName", "biometricPin", "departmentName", "staffCategory", date, "punchIn", "punchOut", "workingHours", status, "isLate", "isEarlyExit", remarks, created_at'
+            )
+            .order('created_at', { ascending: false })
+            .limit(500);
+          if (!error && data) {
+            this.isCloudConnected = true;
+            this.markTableFresh('attendance_records');
+            const current = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
+            if (JSON.stringify(current) !== JSON.stringify(data)) {
+              this.setItem(STORAGE_KEYS.ATTENDANCE, data, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 4. Sync Leave Requests
-      const { data: leaveData, error: leaveErr } = await supabase
-        .from('leave_requests')
-        .select('*')
-        .order('createdAt', { ascending: false });
-      if (!leaveErr && leaveData) {
-        const currentLeave = this.getItem<LeaveRequest[]>(STORAGE_KEYS.LEAVES, []);
-        if (JSON.stringify(currentLeave) !== JSON.stringify(leaveData)) {
-          this.setItem(STORAGE_KEYS.LEAVES, leaveData, false);
-          hasChanged = true;
+        case 'leave_requests': {
+          const { data, error } = await supabase
+            .from('leave_requests')
+            .select(
+              'id, "employeeId", "employeeName", "departmentName", "leaveType", "fromDate", "toDate", "totalDays", reason, status, "hrComment", "reviewedBy", "reviewedAt", "createdAt"'
+            )
+            .order('createdAt', { ascending: false })
+            .limit(300);
+          if (!error && data) {
+            this.isCloudConnected = true;
+            this.markTableFresh('leave_requests');
+            const current = this.getItem<LeaveRequest[]>(STORAGE_KEYS.LEAVES, []);
+            if (JSON.stringify(current) !== JSON.stringify(data)) {
+              this.setItem(STORAGE_KEYS.LEAVES, data, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 5. Sync Time Correction Requests
-      const { data: corrData, error: corrErr } = await supabase
-        .from('time_corrections')
-        .select('*')
-        .order('createdAt', { ascending: false });
-      if (!corrErr && corrData) {
-        const currentCorr = this.getItem<TimeCorrectionRequest[]>(STORAGE_KEYS.CORRECTIONS, []);
-        if (JSON.stringify(currentCorr) !== JSON.stringify(corrData)) {
-          this.setItem(STORAGE_KEYS.CORRECTIONS, corrData, false);
-          hasChanged = true;
+        case 'time_corrections': {
+          const { data, error } = await supabase
+            .from('time_corrections')
+            .select(
+              'id, "employeeId", "employeeName", "departmentName", date, "currentPunchIn", "currentPunchOut", "requestedPunchIn", "requestedPunchOut", reason, status, "hrComment", "reviewedBy", "reviewedAt", "createdAt"'
+            )
+            .order('createdAt', { ascending: false })
+            .limit(300);
+          if (!error && data) {
+            this.isCloudConnected = true;
+            this.markTableFresh('time_corrections');
+            const current = this.getItem<TimeCorrectionRequest[]>(STORAGE_KEYS.CORRECTIONS, []);
+            if (JSON.stringify(current) !== JSON.stringify(data)) {
+              this.setItem(STORAGE_KEYS.CORRECTIONS, data, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 6. Sync Holidays
-      const { data: holData, error: holErr } = await supabase
-        .from('holidays')
-        .select('*')
-        .order('date', { ascending: true });
-      if (!holErr && holData) {
-        const currentHol = this.getItem<Holiday[]>(STORAGE_KEYS.HOLIDAYS, []);
-        if (JSON.stringify(currentHol) !== JSON.stringify(holData)) {
-          this.setItem(STORAGE_KEYS.HOLIDAYS, holData, false);
-          hasChanged = true;
+        case 'holidays': {
+          const { data, error } = await supabase
+            .from('holidays')
+            .select('id, name, date, "dayOfWeek", type, description')
+            .order('date', { ascending: true });
+          if (!error && data) {
+            this.isCloudConnected = true;
+            this.markTableFresh('holidays');
+            const current = this.getItem<Holiday[]>(STORAGE_KEYS.HOLIDAYS, []);
+            if (JSON.stringify(current) !== JSON.stringify(data)) {
+              this.setItem(STORAGE_KEYS.HOLIDAYS, data, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 7. Sync Announcements
-      const { data: ancData, error: ancErr } = await supabase
-        .from('announcements')
-        .select('*')
-        .order('publishedAt', { ascending: false });
-      if (!ancErr && ancData) {
-        const currentAnc = this.getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, []);
-        if (JSON.stringify(currentAnc) !== JSON.stringify(ancData)) {
-          this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, ancData, false);
-          hasChanged = true;
+        case 'announcements': {
+          const { data, error } = await supabase
+            .from('announcements')
+            .select('id, title, description, priority, "targetAudience", "publishedBy", "publishedAt"')
+            .order('publishedAt', { ascending: false })
+            .limit(50);
+          if (!error && data) {
+            this.isCloudConnected = true;
+            this.markTableFresh('announcements');
+            const current = this.getItem<Announcement[]>(STORAGE_KEYS.ANNOUNCEMENTS, []);
+            if (JSON.stringify(current) !== JSON.stringify(data)) {
+              this.setItem(STORAGE_KEYS.ANNOUNCEMENTS, data, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 8. Sync Payroll Runs
-      const { data: prData, error: prErr } = await supabase
-        .from('payroll_runs')
-        .select('*')
-        .order('processedAt', { ascending: false });
-      if (!prErr && prData) {
-        const currentPr = this.getItem<PayrollRun[]>(STORAGE_KEYS.PAYROLL_RUNS, []);
-        if (JSON.stringify(currentPr) !== JSON.stringify(prData)) {
-          this.setItem(STORAGE_KEYS.PAYROLL_RUNS, prData, false);
-          hasChanged = true;
+        case 'payroll_runs': {
+          const { data, error } = await supabase
+            .from('payroll_runs')
+            .select('id, "monthYear", "totalEmployees", "totalGrossPay", "totalDeductions", "totalNetPay", status, "processedBy", "processedAt"')
+            .order('processedAt', { ascending: false })
+            .limit(50);
+          if (!error && data) {
+            this.isCloudConnected = true;
+            this.markTableFresh('payroll_runs');
+            const current = this.getItem<PayrollRun[]>(STORAGE_KEYS.PAYROLL_RUNS, []);
+            if (JSON.stringify(current) !== JSON.stringify(data)) {
+              this.setItem(STORAGE_KEYS.PAYROLL_RUNS, data, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 9. Sync Payslips
-      const { data: psData, error: psErr } = await supabase
-        .from('payslips')
-        .select('*')
-        .order('generatedAt', { ascending: false });
-      if (!psErr && psData) {
-        const currentPs = this.getItem<Payslip[]>(STORAGE_KEYS.PAYSLIPS, []);
-        if (JSON.stringify(currentPs) !== JSON.stringify(psData)) {
-          this.setItem(STORAGE_KEYS.PAYSLIPS, psData, false);
-          hasChanged = true;
+        case 'payslips': {
+          const { data, error } = await supabase
+            .from('payslips')
+            .select(
+              'id, "payslipNumber", "employeeId", "employeeName", "departmentName", "designationName", "staffCategory", "workLocation", "joiningDate", "payPeriod", "paidDays", "lopDays", "basicSalary", hra, conveyance, "specialAllowance", "otherAllowance", "grossSalary", "pfDeduction", "esiDeduction", "ptDeduction", "tdsDeduction", "advanceDeduction", "otherDeduction", "totalDeductions", "netPay", "netPayInWords", status, "generatedAt"'
+            )
+            .order('generatedAt', { ascending: false })
+            .limit(200);
+          if (!error && data) {
+            this.isCloudConnected = true;
+            this.markTableFresh('payslips');
+            const current = this.getItem<Payslip[]>(STORAGE_KEYS.PAYSLIPS, []);
+            if (JSON.stringify(current) !== JSON.stringify(data)) {
+              this.setItem(STORAGE_KEYS.PAYSLIPS, data, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 10. Sync Audit Logs
-      const { data: auditData, error: auditErr } = await supabase
-        .from('audit_logs')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(100);
-      if (!auditErr && auditData) {
-        const currentAudit = this.getItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, []);
-        if (JSON.stringify(currentAudit) !== JSON.stringify(auditData)) {
-          this.setItem(STORAGE_KEYS.AUDIT_LOGS, auditData, false);
-          hasChanged = true;
+        case 'audit_logs': {
+          const { data, error } = await supabase
+            .from('audit_logs')
+            .select('id, "userName", "userRole", action, module, "ipAddress", timestamp, details')
+            .order('timestamp', { ascending: false })
+            .limit(50);
+          if (!error && data) {
+            this.isCloudConnected = true;
+            this.markTableFresh('audit_logs');
+            const current = this.getItem<AuditLog[]>(STORAGE_KEYS.AUDIT_LOGS, []);
+            if (JSON.stringify(current) !== JSON.stringify(data)) {
+              this.setItem(STORAGE_KEYS.AUDIT_LOGS, data, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
-      }
 
-      // 11. Sync Company Settings
-      const { data: settingsData, error: settingsErr } = await supabase
-        .from('company_settings')
-        .select('*')
-        .limit(1);
-      if (!settingsErr && settingsData && settingsData.length > 0) {
-        const setRow = settingsData[0];
-        const current = this.getSettings();
-        const updatedSettings: CompanySettings = {
-          ...current,
-          companyName: setRow.companyName || current.companyName,
-          tagline: setRow.tagline || current.tagline,
-          address: setRow.address || current.address,
-          phone: setRow.phone || current.phone,
-          email: setRow.email || current.email,
-          website: setRow.website || current.website
-        };
-        if (JSON.stringify(current) !== JSON.stringify(updatedSettings)) {
-          this.setItem(STORAGE_KEYS.SETTINGS, updatedSettings, false);
-          hasChanged = true;
+        case 'company_settings': {
+          const { data, error } = await supabase
+            .from('company_settings')
+            .select(
+              'id, "companyName", tagline, "logoUrl", address, phone, email, website, "workingDaysPerMonth", "currencySymbol", "requireLocationForPunch", "gracePeriodMinutes", "lateMarkAfterMinutes", "auditLoggingEnabled"'
+            )
+            .limit(1);
+          if (!error && data && data.length > 0) {
+            this.isCloudConnected = true;
+            this.markTableFresh('company_settings');
+            const setRow = data[0];
+            const current = this.getSettings();
+            const updatedSettings: CompanySettings = {
+              ...current,
+              companyName: setRow.companyName || current.companyName,
+              tagline: setRow.tagline || current.tagline,
+              address: setRow.address || current.address,
+              phone: setRow.phone || current.phone,
+              email: setRow.email || current.email,
+              website: setRow.website || current.website
+            };
+            if (JSON.stringify(current) !== JSON.stringify(updatedSettings)) {
+              this.setItem(STORAGE_KEYS.SETTINGS, updatedSettings, false);
+              hasChanged = true;
+            }
+          }
+          break;
         }
       }
 
       if (hasChanged) {
+        this.notify();
+      }
+      return hasChanged;
+    } catch (err) {
+      console.warn(`Supabase sync notice for ${tableName}:`, err);
+      return false;
+    }
+  }
+
+  /**
+   * Refreshes only tables whose cache TTL has expired.
+   */
+  public async syncStaleTables(): Promise<void> {
+    if (this.isSyncing) return;
+    this.isSyncing = true;
+    try {
+      const tables = [
+        'company_settings',
+        'shifts',
+        'holidays',
+        'employees',
+        'attendance_records',
+        'leave_requests',
+        'time_corrections',
+        'announcements',
+        'payroll_runs',
+        'payslips',
+        'audit_logs'
+      ];
+      for (const table of tables) {
+        if (this.isTableStale(table)) {
+          await this.syncTable(table, false);
+        }
+      }
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Authoritative Supabase Cloud synchronization.
+   * If forceNotify is false, respects per-table TTL and only fetches stale tables.
+   */
+  public async syncFromSupabase(forceNotify: boolean = false) {
+    if (this.isSyncing) return;
+    this.isSyncing = true;
+    try {
+      const tables = [
+        'company_settings',
+        'shifts',
+        'holidays',
+        'employees',
+        'attendance_records',
+        'leave_requests',
+        'time_corrections',
+        'announcements',
+        'payroll_runs',
+        'payslips',
+        'audit_logs'
+      ];
+      for (const table of tables) {
+        await this.syncTable(table, forceNotify);
+      }
+      if (forceNotify) {
         this.notify();
       }
     } catch (err) {
@@ -317,6 +487,7 @@ class DatabaseService {
         console.warn(`Supabase upsert warning for ${tableName}:`, error.message);
       } else {
         this.isCloudConnected = true;
+        this.markTableFresh(tableName);
       }
     } catch (err) {
       console.warn(`Supabase push error for ${tableName}:`, err);
@@ -557,21 +728,14 @@ class DatabaseService {
   }
 
   // --- Employees ---
-  public async fetchEmployeesFromSupabase(): Promise<Employee[]> {
-    try {
-      const { data, error } = await supabase.from('employees').select('*');
-      if (!error && data !== null) {
-        this.isCloudConnected = true;
-        const cleanedEmps = data.map((e: any) => {
-          const { created_at, ...clean } = e;
-          return clean as Employee;
-        });
-        this.setItem(STORAGE_KEYS.EMPLOYEES, cleanedEmps, true);
-        return cleanedEmps;
+  public async fetchEmployeesFromSupabase(force: boolean = false): Promise<Employee[]> {
+    if (!force && !this.isTableStale('employees')) {
+      const cached = this.getEmployees();
+      if (cached && cached.length > 0) {
+        return cached;
       }
-    } catch (e) {
-      console.warn('Notice fetching employees directly from Supabase:', e);
     }
+    await this.syncTable('employees', true);
     return this.getEmployees();
   }
 
@@ -593,6 +757,15 @@ class DatabaseService {
   }
 
   public async saveEmployee(emp: Employee) {
+    // Compress oversized avatar before pushing to cloud database
+    if (emp.profilePhoto && emp.profilePhoto.startsWith('data:image') && emp.profilePhoto.length > 50000) {
+      try {
+        emp.profilePhoto = await compressImage(emp.profilePhoto, 200, 200, 0.8);
+      } catch {
+        // preserve photo
+      }
+    }
+
     const list = this.getEmployees();
     const idx = list.findIndex((e) => e.id === emp.id || e.employeeId === emp.employeeId);
     if (idx >= 0) {
@@ -604,6 +777,7 @@ class DatabaseService {
 
     // Push to Supabase Cloud asynchronously without blocking UI
     await this.pushToSupabase('employees', emp);
+    this.markTableFresh('employees');
 
     const user = this.getCurrentUser();
     this.addAuditLog(
@@ -617,16 +791,26 @@ class DatabaseService {
   }
 
   public async updateEmployeePhoto(empId: string, photoUrl: string) {
+    let cleanPhoto = photoUrl;
+    if (cleanPhoto && cleanPhoto.startsWith('data:image') && cleanPhoto.length > 50000) {
+      try {
+        cleanPhoto = await compressImage(cleanPhoto, 200, 200, 0.8);
+      } catch {
+        // preserve
+      }
+    }
+
     const list = this.getEmployees();
     const emp = list.find((e) => e.id === empId || e.employeeId === empId);
     if (emp) {
-      emp.profilePhoto = photoUrl;
+      emp.profilePhoto = cleanPhoto;
       this.setItem(STORAGE_KEYS.EMPLOYEES, list, true);
-      this.pushToSupabase('employees', emp);
+      await this.pushToSupabase('employees', emp);
+      this.markTableFresh('employees');
 
       const current = this.getCurrentUser();
       if (current && current.employeeId === emp.employeeId) {
-        current.avatarUrl = photoUrl;
+        current.avatarUrl = cleanPhoto;
         this.setCurrentUser(current);
       }
       this.notify();
@@ -639,7 +823,8 @@ class DatabaseService {
     if (emp) {
       emp.status = emp.status === 'Active' ? 'Inactive' : 'Active';
       this.setItem(STORAGE_KEYS.EMPLOYEES, list, true);
-      this.pushToSupabase('employees', emp);
+      await this.pushToSupabase('employees', emp);
+      this.markTableFresh('employees');
       this.notify();
     }
   }
@@ -697,8 +882,8 @@ class DatabaseService {
       `Permanently deleted employee ${target?.fullName || empId} (${targetEmpCode})`
     );
 
-    // Re-sync from Supabase to confirm state
-    this.syncFromSupabase(true);
+    // Re-sync only the employees table from Supabase to confirm state
+    this.syncTable('employees', true);
   }
 
   // --- Attendance ---
@@ -889,7 +1074,7 @@ class DatabaseService {
       `Deleted holiday: ${target?.name || holidayId}`
     );
 
-    this.syncFromSupabase();
+    this.syncTable('holidays', true);
   }
 
   // --- Payroll & Payslips ---
@@ -1053,7 +1238,7 @@ class DatabaseService {
       `Deleted shift: ${target?.name || shiftId}`
     );
 
-    this.syncFromSupabase();
+    this.syncTable('shifts', true);
   }
 
   // --- Announcements & Audit Logs ---
@@ -1089,7 +1274,7 @@ class DatabaseService {
       `Deleted announcement: ${target?.title || announcementId}`
     );
 
-    this.syncFromSupabase();
+    this.syncTable('announcements', true);
   }
 
   public getAuditLogs(): AuditLog[] {

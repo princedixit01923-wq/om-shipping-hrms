@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User, Phone, Mail, Building, CreditCard, Shield, Camera, Lock, CheckCircle2 } from 'lucide-react';
 import { Employee } from '../../types';
 import { dbService } from '../../services/dbService';
+import { compressImage } from '../../utils/imageCompressor';
 
 interface MyProfileProps {
   employee: Employee;
@@ -11,18 +12,26 @@ export const MyProfile: React.FC<MyProfileProps> = ({ employee: initialEmp }) =>
   const [employee, setEmployee] = useState<Employee>(initialEmp);
   const [photoSaved, setPhotoSaved] = useState(false);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const newPhotoUrl = reader.result as string;
-        dbService.updateEmployeePhoto(employee.employeeId, newPhotoUrl);
-        setEmployee({ ...employee, profilePhoto: newPhotoUrl });
+      try {
+        const compressedPhotoUrl = await compressImage(file, 200, 200, 0.8);
+        await dbService.updateEmployeePhoto(employee.employeeId, compressedPhotoUrl);
+        setEmployee({ ...employee, profilePhoto: compressedPhotoUrl });
         setPhotoSaved(true);
         setTimeout(() => setPhotoSaved(false), 3000);
-      };
-      reader.readAsDataURL(file);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const newPhotoUrl = reader.result as string;
+          await dbService.updateEmployeePhoto(employee.employeeId, newPhotoUrl);
+          setEmployee({ ...employee, profilePhoto: newPhotoUrl });
+          setPhotoSaved(true);
+          setTimeout(() => setPhotoSaved(false), 3000);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 

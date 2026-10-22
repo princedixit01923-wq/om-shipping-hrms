@@ -20,6 +20,7 @@ import { Employee, Shift } from '../../types';
 import { dbService } from '../../services/dbService';
 import { exportEmployeesToCSV, downloadEmployeeImportTemplate } from '../../services/exportService';
 import { Badge } from '../common/Badge';
+import { compressImage } from '../../utils/imageCompressor';
 
 export const EmployeeDirectory: React.FC = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -274,14 +275,19 @@ export const EmployeeDirectory: React.FC = () => {
     }
   };
 
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfilePhoto(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, 200, 200, 0.8);
+        setProfilePhoto(compressed);
+      } catch {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setProfilePhoto(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 

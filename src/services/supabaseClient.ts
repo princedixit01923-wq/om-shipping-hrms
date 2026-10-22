@@ -2,10 +2,10 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Dedicated Supabase Cloud credentials for OM Safety Services LLP
 export const SUPABASE_URL =
-  (import.meta.env.VITE_SUPABASE_URL as string) || 'https://wgjqruvldynwxtydhxcd.supabase.co';
+  (import.meta.env.VITE_SUPABASE_URL as string) || 'https://hqjklzostgmwqxgwhqqw.supabase.co';
 
 export const SUPABASE_ANON_KEY =
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndnanFydXZsZHlud3h0eWRoeGNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzMzExODksImV4cCI6MjEwNjkwNzE4OX0.-Y01GRQANaZ_b4_tRDdpTPBlpHDwJq5-COatb1MRn70';
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhxamtsem9zdGdtd3F4Z3docXF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2NTcwODQsImV4cCI6MjEwODIzMzA4NH0.QPPEiycfpmLXdEBhEpvC2vgERtSJHddDnJ4L_bosiBQ';
 
 // Single reliable production client instance
 export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

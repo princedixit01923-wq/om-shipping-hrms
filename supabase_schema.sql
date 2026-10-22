@@ -1,7 +1,7 @@
 -- ====================================================================
 -- OM SAFETY SERVICES LLP - HRMS DATABASE SCHEMA
 -- COMPLETE SUPABASE DDL + ROW-LEVEL SECURITY FIX + SEED DATA
--- Project ID: nyhycxpymyaifqyieslt
+-- Project ID: hqjklzostgmwqxgwhqqw
 -- ====================================================================
 
 -- 1. Enable Required Extensions
@@ -282,6 +282,18 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS "public_access" ON public.%I;', t);
     EXECUTE format('CREATE POLICY "public_access" ON public.%I FOR ALL TO public USING (true) WITH CHECK (true);', t);
   END LOOP;
+END $$;
+
+-- 3.4 Add tables to supabase_realtime publication for instant cross-device updates
+DO $$ 
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    BEGIN
+      ALTER PUBLICATION supabase_realtime ADD TABLE shifts, employees, attendance_records, leave_requests, time_corrections, holidays, payroll_runs, payslips, announcements, audit_logs, company_settings;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+  END IF;
 END $$;
 
 -- ====================================================================
