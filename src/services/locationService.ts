@@ -1,10 +1,11 @@
 import { LocationCoordinates } from '../types';
 
 /**
- * Result of reverse geocoding
+ * Reverse geocodes exact coordinates into actual physical street, port, or city address.
+ * Uses real-time online geocoders without any hardcoded fallback address.
  */
-export async function reverseGeocodeCoords(lat: number, lng: number): Promise<string> {
-  // 1. Try OpenStreetMap Nominatim with strict timeout
+export async function reverseGeocodeCoords(lat: number, lng: number, accuracy: number = 10): Promise<string> {
+  // Provider 1: OpenStreetMap Nominatim
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
@@ -25,10 +26,10 @@ export async function reverseGeocodeCoords(lat: number, lng: number): Promise<st
       }
     }
   } catch {
-    // Continue to next provider
+    // try next live provider
   }
 
-  // 2. Try BigDataCloud Client Reverse Geocode (high speed, accurate Indian ports and cities)
+  // Provider 2: BigDataCloud Reverse Geocoding API
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
@@ -54,70 +55,20 @@ export async function reverseGeocodeCoords(lat: number, lng: number): Promise<st
       }
     }
   } catch {
-    // Fallback to coordinates
+    // fallback to coordinates
   }
 
-  return `GPS Pos: ${lat.toFixed(5)}° N, ${lng.toFixed(5)}° E`;
+  // No hardcoded address - output exact live GPS coordinate format
+  return `GPS Position: ${lat.toFixed(6)}° N, ${lng.toFixed(6)}° E (±${Math.round(accuracy)}m)`;
 }
 
 /**
- * Fallback to IP-based Geolocation when hardware GPS is unavailable or blocked
- */
-async function fetchIpGeolocation(): Promise<{ latitude: number; longitude: number; accuracy: number; address: string } | null> {
-  // Provider 1: ipapi.co
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && typeof data.latitude === 'number' && typeof data.longitude === 'number') {
-        const cityDesc = [data.city, data.region, data.country_name].filter(Boolean).join(', ');
-        return {
-          latitude: data.latitude,
-          longitude: data.longitude,
-          accuracy: 5000,
-          address: cityDesc ? `${cityDesc} (Network Estimated Location)` : 'Network Estimated Location'
-        };
-      }
-    }
-  } catch {
-    // try next
-  }
-
-  // Provider 2: freeipapi.com
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch('https://freeipapi.com/api/json', { signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && typeof data.latitude === 'number' && typeof data.longitude === 'number') {
-        const cityDesc = [data.cityName, data.regionName, data.countryName].filter(Boolean).join(', ');
-        return {
-          latitude: data.latitude,
-          longitude: data.longitude,
-          accuracy: 5000,
-          address: cityDesc ? `${cityDesc} (Network Estimated Location)` : 'Network Estimated Location'
-        };
-      }
-    }
-  } catch {
-    // Failed all IP providers
-  }
-
-  return null;
-}
-
-/**
- * Query navigator.geolocation with customizable options wrapped in a Promise
+ * Promise-wrapped navigator.geolocation query
  */
 function queryBrowserPosition(options: PositionOptions): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Geolocation is not supported by your browser.'));
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      reject(new Error('Geolocation is not supported by your browser or device.'));
       return;
     }
     navigator.geolocation.getCurrentPosition(resolve, reject, options);
@@ -125,48 +76,51 @@ function queryBrowserPosition(options: PositionOptions): Promise<GeolocationPosi
 }
 
 /**
- * Acquire genuine real-time live location coordinates using a progressive multi-tier strategy:
- * Tier 1: Hardware High-Accuracy GPS (Fine Satellite Lock)
- * Tier 2: Standard/Coarse Accuracy (Cell-Tower / Wi-Fi Triangulation)
- * Tier 3: Network IP Geolocation Fallback
- * 
- * NEVER returns fake Gandhidham coordinates!
+ * Acquire genuine real-time live location coordinates from device GPS sensor.
+ * STRICT POLICY:
+ * - NO hardcoded addresses or coordinates
+ * - NO simulated or IP-guessed addresses
+ * - Requires genuine device location lock
  */
 export async function getAccurateLiveLocation(): Promise<LocationCoordinates> {
-  let pos: GeolocationPosition | null = null;
-  let isHardwareGps = false;
+  if (typeof window === 'undefined' || !navigator.geolocation) {
+    throw new Error('Geolocation is not supported on this device or browser.');
+  }
 
-  // Tier 1: High-Accuracy Hardware GPS (15s timeout, allows recent 10s fix)
+  let pos: GeolocationPosition | null = null;
+  let isFineGps = false;
+
+  // 1. Try High-Accuracy Hardware GPS sensor first (15s timeout, allows recent 5s fix)
   try {
     pos = await queryBrowserPosition({
       enableHighAccuracy: true,
       timeout: 15000,
-      maximumAge: 10000
+      maximumAge: 5000
     });
-    isHardwareGps = true;
+    isFineGps = true;
   } catch (err: any) {
-    console.warn('Tier 1 High-Accuracy GPS timed out or failed. Falling back to Tier 2 Standard/Network GPS...', err);
+    console.warn('High-accuracy GPS satellite fix timeout. Trying standard device location...', err);
   }
 
-  // Tier 2: Standard/Cell-Tower/Wi-Fi Triangulation (fast, works indoors and at ports)
+  // 2. If fine satellite lock timed out, try standard device location (Cell-Tower / Wi-Fi)
   if (!pos) {
     try {
       pos = await queryBrowserPosition({
         enableHighAccuracy: false,
         timeout: 10000,
-        maximumAge: 30000
+        maximumAge: 15000
       });
-      isHardwareGps = true;
+      isFineGps = false;
     } catch (err: any) {
-      console.warn('Tier 2 Standard Geolocation failed. Trying Tier 3 Network IP Geolocation...', err);
+      console.warn('Standard location query failed:', err);
     }
   }
 
-  // If browser geolocation succeeded
+  // If a genuine device position was acquired:
   if (pos && pos.coords) {
     const { latitude, longitude, accuracy } = pos.coords;
-    const address = await reverseGeocodeCoords(latitude, longitude);
-    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 45) : 'Mobile Browser';
+    const address = await reverseGeocodeCoords(latitude, longitude, accuracy);
+    const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent.substring(0, 45) : 'Mobile Device';
 
     return {
       latitude,
@@ -174,26 +128,13 @@ export async function getAccurateLiveLocation(): Promise<LocationCoordinates> {
       accuracy: Math.round(accuracy || 10),
       timestamp: pos.timestamp || Date.now(),
       address,
-      deviceInfo: `${userAgent} (${isHardwareGps ? 'Live GPS' : 'Network Position'})`
+      deviceInfo: `${userAgent} (${isFineGps ? 'Satellite GPS' : 'Device Network Position'})`
     };
   }
 
-  // Tier 3: Network IP Geolocation
-  const ipResult = await fetchIpGeolocation();
-  if (ipResult) {
-    return {
-      latitude: ipResult.latitude,
-      longitude: ipResult.longitude,
-      accuracy: ipResult.accuracy,
-      timestamp: Date.now(),
-      address: ipResult.address,
-      deviceInfo: `${navigator.userAgent.substring(0, 45)} (Network IP Position)`
-    };
-  }
-
-  // If ALL tiers failed, throw an honest, user-actionable error instead of faking coordinates
+  // If no position could be acquired from the device sensor, DO NOT fake or guess any address!
   throw new Error(
-    'Unable to detect your live location. Please turn ON Location/GPS in your phone/browser settings and tap "Update GPS Location".'
+    'Live GPS location could not be determined. Please ensure device Location/GPS is turned ON and location permission is granted in your browser.'
   );
 }
 
@@ -216,15 +157,15 @@ export function watchAccuratePosition(
       if (isCancelled || !pos || !pos.coords) return;
       try {
         const { latitude, longitude, accuracy } = pos.coords;
-        const address = await reverseGeocodeCoords(latitude, longitude);
+        const address = await reverseGeocodeCoords(latitude, longitude, accuracy);
         if (!isCancelled) {
           onUpdate({
             latitude,
             longitude,
-            accuracy: Math.round(accuracy || 15),
+            accuracy: Math.round(accuracy || 10),
             timestamp: pos.timestamp || Date.now(),
             address,
-            deviceInfo: `${navigator.userAgent.substring(0, 45)} (Live GPS Watch)`
+            deviceInfo: `${navigator.userAgent.substring(0, 45)} (Live GPS Sensor)`
           });
         }
       } catch {
@@ -234,11 +175,11 @@ export function watchAccuratePosition(
     (err) => {
       if (isCancelled) return;
       if (err.code === err.PERMISSION_DENIED) {
-        onError('Location permission denied. Please allow location access in your browser to record attendance.');
+        onError('Location permission denied. Please allow location access in your browser settings.');
       } else if (err.code === err.POSITION_UNAVAILABLE) {
-        onError('GPS position currently unavailable. Please ensure device GPS is turned ON.');
+        onError('GPS position currently unavailable. Please turn ON device GPS / Location.');
       } else if (err.code === err.TIMEOUT) {
-        onError('GPS signal acquisition timed out. Tap "Update GPS Location" to retry.');
+        onError('GPS acquisition timed out. Tap "Refresh GPS Location" to retry.');
       }
     },
     {

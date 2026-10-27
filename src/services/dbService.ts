@@ -575,6 +575,19 @@ class DatabaseService {
     }
     // Clean up legacy audit logs from localStorage if present
     localStorage.removeItem('om_hrms_audit_logs');
+
+    // Clean up any legacy dummy records with fake addresses from localStorage
+    try {
+      const storedAtt = this.getItem<AttendanceRecord[]>(STORAGE_KEYS.ATTENDANCE, []);
+      const cleanAtt = storedAtt.filter(
+        (r) => r.id !== 'att-2026-09-21-1001' && r.punchIn?.deviceInfo !== 'Device GPS'
+      );
+      if (cleanAtt.length !== storedAtt.length) {
+        this.setItem(STORAGE_KEYS.ATTENDANCE, cleanAtt, false);
+      }
+    } catch {
+      // ignore
+    }
   }
 
   // --- Auth Session ---

@@ -115,54 +115,9 @@ export const INITIAL_USERS: User[] = [
 
 export const INITIAL_EMPLOYEES: Employee[] = [];
 
-export const INITIAL_ATTENDANCE: AttendanceRecord[] = [
-  {
-    id: 'att-2026-09-21-1001',
-    employeeId: 'OSS/13/2026',
-    employeeName: 'Rahul Kumar',
-    biometricPin: '1024',
-    departmentName: 'Technical Department',
-    staffCategory: 'Field Staff',
-    date: '2026-09-21',
-    punchIn: {
-      latitude: 23.0753,
-      longitude: 70.1337,
-      accuracy: 10,
-      timestamp: Date.now() - 28800000,
-      address: 'Industrial Area, Ward 6, Bharat Nagar, Gandhidham, Gujarat',
-      deviceInfo: 'Mobile Device GPS'
-    },
-    punchOut: {
-      latitude: 23.0755,
-      longitude: 70.1339,
-      accuracy: 12,
-      timestamp: Date.now() - 3600000,
-      address: 'Kandla Port Terminal, Gujarat',
-      deviceInfo: 'Mobile Device GPS'
-    },
-    workingHours: 7.0,
-    status: 'Present',
-    isLate: false,
-    isEarlyExit: false,
-    remarks: 'Verified GPS Punch'
-  }
-];
+export const INITIAL_ATTENDANCE: AttendanceRecord[] = [];
 
-export const INITIAL_LEAVE_REQUESTS: LeaveRequest[] = [
-  {
-    id: 'lv-101',
-    employeeId: 'OSS/13/2026',
-    employeeName: 'Rahul Kumar',
-    departmentName: 'Technical Department',
-    leaveType: 'Casual Leave',
-    fromDate: '2026-09-25',
-    toDate: '2026-09-26',
-    totalDays: 2,
-    reason: 'Personal work',
-    status: 'Pending',
-    createdAt: '2026-09-20T10:30:00Z'
-  }
-];
+export const INITIAL_LEAVE_REQUESTS: LeaveRequest[] = [];
 
 export const INITIAL_TIME_CORRECTIONS: TimeCorrectionRequest[] = [];
 

@@ -85,8 +85,8 @@ export const MapView: React.FC<MapViewProps> = ({
   zoom = 15,
   height = '400px'
 }) => {
-  const lat = center?.[0] || punches[0]?.location.latitude || officeLocation?.latitude || 23.0753;
-  const lng = center?.[1] || punches[0]?.location.longitude || officeLocation?.longitude || 70.1337;
+  const lat = center?.[0] || punches[0]?.location.latitude || officeLocation?.latitude || 20.5937;
+  const lng = center?.[1] || punches[0]?.location.longitude || officeLocation?.longitude || 78.9629;
   const defaultCenter: [number, number] = [lat, lng];
 
   return (
