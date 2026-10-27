@@ -1,3 +1,5 @@
+import { reverseGeocodeCoords } from './locationService';
+
 export interface Point {
   latitude: number;
   longitude: number;
@@ -23,26 +25,8 @@ export function calculateDistanceMeters(point1: Point, point2: Point): number {
 }
 
 /**
- * Reverse geocoding utility using OpenStreetMap Nominatim API to get actual street/city address
+ * Reverse geocoding utility with dual-provider fallback to get actual street/city/port address
  */
 export async function getReverseGeocode(lat: number, lng: number): Promise<string> {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-      {
-        headers: { 'User-Agent': 'OMShippingPrinceHRMS/2.0' }
-      }
-    );
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.display_name) {
-        return data.display_name;
-      }
-    }
-  } catch (err) {
-    console.warn('Reverse geocoding fetch fallback:', err);
-  }
-
-  // Precision coordinate representation if network request is blocked
-  return `GPS Pos: ${lat.toFixed(5)}° N, ${lng.toFixed(5)}° E`;
+  return reverseGeocodeCoords(lat, lng);
 }
